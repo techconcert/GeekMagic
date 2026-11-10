@@ -22,6 +22,7 @@ SHEETS = [
     # (file, C name)
     ("tiles.png", "TILES"),
     ("hero.png", "HERO"),
+    ("items.png", "ITEMS"),
 ]
 
 

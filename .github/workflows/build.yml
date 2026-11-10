@@ -21,7 +21,7 @@ jobs:
       - name: Smoke test (ASan/UBSan, 1 h simulated per scene)
         run: |
           g++ -std=c++17 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -Wall -Wextra -Werror \
-            -o core_smoke test/core_smoke.cpp lib/gamecore/src/gamecore.cpp
+            -o core_smoke test/core_smoke.cpp lib/gamecore/src/*.cpp
           ./core_smoke
       - name: Build browser preview
         run: |

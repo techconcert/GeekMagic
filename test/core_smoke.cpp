@@ -24,7 +24,7 @@ int main() {
         if (f % 5000 == 0) dt = 400;  // stall
         t += dt;
         gc_tick(dt);
-        int mins = (t / 1000 / 60) % 1440;
+        int mins = (int)((t / 1000ULL * 24 / 60) % 1440);  // a full day per simulated hour
         gc_set_clock(mins / 60, mins % 60, f > 100);
         gc_set_fps((f * 13) % 400);
         uint32_t mask = gc_dirty_mask();

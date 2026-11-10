@@ -88,8 +88,8 @@ label.check { display: flex; gap: 8px; align-items: center; font-size: .9rem; cu
       <div class="group">
         <h2>Scene</h2>
         <div class="seg" id="scene">
-          <button id="scene-test" data-v="0" aria-pressed="true">Hardware test</button>
-          <button id="scene-village" data-v="1" aria-pressed="false">Village</button>
+          <button id="scene-village" data-v="1" aria-pressed="true">Village</button>
+          <button id="scene-test" data-v="0" aria-pressed="false">Hardware test</button>
         </div>
       </div>
       <div class="group">
@@ -234,7 +234,7 @@ label.check { display: flex; gap: 8px; align-items: center; font-size: .9rem; cu
 
   WebAssembly.instantiate(bytes, {}).then(({ instance }) => {
     ex = instance.exports; mem = ex.memory;
-    start(0);
+    start(1);
     requestAnimationFrame(frame);
   });
 })();

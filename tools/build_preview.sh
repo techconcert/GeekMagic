@@ -9,7 +9,7 @@ $CLANG --target=wasm32 -O2 -ffreestanding -nostdlib -fno-exceptions -fno-rtti \
   -fno-builtin -Wall -Wextra -Werror=return-type \
   -Wl,--no-entry -Wl,--strip-all -Wl,-z,stack-size=65536 \
   -o preview/dist/gamecore.wasm \
-  lib/gamecore/src/gamecore.cpp preview/wasm_shim.cpp
+  lib/gamecore/src/*.cpp preview/wasm_shim.cpp
 python3 - <<'PY'
 import base64, pathlib
 wasm = pathlib.Path("preview/dist/gamecore.wasm").read_bytes()

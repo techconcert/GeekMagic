@@ -10,7 +10,7 @@ needed. It also shows the time.
 | Build | What it does |
 |---|---|
 | `test` | Hardware check: grass field, hero walking a loop, RGB colour bars, clock, FPS, update page. **Flash this first.** |
-| `quest` | The village game (work in progress; currently the same scene as `test`). |
+| `quest` | The village game: day/night, chopping, fishing, trading, chatting, questing, sleeping. |
 
 ## Getting a build
 
