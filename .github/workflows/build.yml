@@ -59,3 +59,31 @@ jobs:
           name: GeekQuest-firmware
           path: dist/*.bin
           if-no-files-found: error
+
+  publish:
+    name: Publish to the builds branch
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    needs: [core, firmware]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+      - name: Commit .bin files and preview to the builds branch
+        run: |
+          set -e
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@users.noreply.github.com"
+          git clone --depth 1 --branch builds "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" site \
+            || (mkdir site && cd site && git init -b builds && git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}")
+          cd site
+          mkdir -p firmware
+          cp ../out/GeekQuest-firmware/*.bin firmware/
+          cp ../out/GeekQuest-preview/index.html preview.html
+          ls firmware/*.bin | sort | sed 's|firmware/||' > firmware/INDEX.txt
+          printf "Latest build: %s\nCommit: %s\n" "$(date -u +%FT%TZ)" "${{ github.sha }}" > LATEST.txt
+          git add -A
+          git commit -m "Build ${{ github.sha }}" || echo "nothing to commit"
+          git push origin builds

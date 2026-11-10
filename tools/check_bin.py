@@ -66,7 +66,9 @@ def check(path, fs_start=None):
 
     if fs_start is not None and fs_start != FS_START_4M3M:
         fail(f"_FS_start is {fs_start:#x}, expected {FS_START_4M3M:#x} (stock 4M3M layout)")
-    elif fs_start is None:
+    elif fs_start is not None:
+        print(f"  flash layout OK: _FS_start={fs_start:#x} (stock 4M3M)")
+    else:
         print("  note: flash layout not verified (no ELF given)")
 
     if not name.startswith("SDP"):
