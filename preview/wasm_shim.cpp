@@ -14,6 +14,7 @@ __attribute__((export_name("init"))) void w_init(int scene, uint32_t seed) { gc_
 __attribute__((export_name("tick"))) void w_tick(uint32_t dt) { gc_tick(dt); }
 __attribute__((export_name("set_clock"))) void w_clock(int h, int m, int v) { gc_set_clock(h, m, v); }
 __attribute__((export_name("set_status"))) void w_status(int line) { gc_set_status(line, text_buf); }
+__attribute__((export_name("set_depth"))) void w_depth(int d) { gc_set_depth(d); }
 __attribute__((export_name("set_fps"))) void w_fps(int f) { gc_set_fps(f); }
 __attribute__((export_name("dirty"))) uint32_t w_dirty(void) { return gc_dirty_mask(); }
 __attribute__((export_name("clear_dirty"))) void w_clear(void) { gc_clear_dirty(); }

@@ -51,6 +51,7 @@ void setup() {
   }
   if (safety::safeMode()) gc_init(GC_SCENE_INFO, 1, 1);   // 3. game, unless in safe mode
   else gc_init(GQ_SCENE, ESP.random(), 1);
+  gc_set_depth(safety::depth());
   safety::stage(4);
   updateStatus();
   s_lastTick = s_fpsT = millis();
@@ -61,6 +62,7 @@ void loop() {
   safety::loop();
   if (!s_display || safety::updating()) { delay(2); return; }
 
+  gc_set_depth(safety::depth());
   uint32_t now = millis();
   gc_tick(now - s_lastTick);
   s_lastTick = now;

@@ -32,6 +32,9 @@ void gc_set_clock(int hour, int minute, int valid);
 // line 0..3, text is copied (max 31 chars). Pass "" to clear.
 void gc_set_status(int line, const char* text);
 
+// Colour depth 0..100: darkens mid-tones to fight a washed-out panel (0 = off).
+void gc_set_depth(int percent);
+
 // Frames per second x10, shown in the test scene.
 void gc_set_fps(int fps_x10);
 

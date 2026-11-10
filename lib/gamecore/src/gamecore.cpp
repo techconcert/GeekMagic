@@ -51,11 +51,22 @@ int str_len(const char* s) { int n = 0; while (s[n]) n++; return n; }
 
 static void fmt2(char* p, int v) { p[0] = (char)('0' + (v / 10) % 10); p[1] = (char)('0' + v % 10); }
 
+static int g_depth;                       // 0..100
+static int g_tr = 256, g_tg = 256, g_tb = 256;
+
+// y = x + (x*x - x) * depth, on a 0..1023 scale. depth 0 = unchanged.
+static inline int curve(int v, int maxv) {
+  int x = v * 1023 / maxv;
+  int y = x + ((x * x / 1023 - x) * g_depth) / 100;
+  return y * maxv / 1023;
+}
+
 void set_tint(int r256, int g256, int b256) {
+  g_tr = r256; g_tg = g256; g_tb = b256;
   for (int i = 0; i < 16; i++) {
     uint16_t c = GC_RD16(&GC_PALETTE[i]);
-    g_ui[i] = c;
-    int r = (c >> 11) & 31, g = (c >> 5) & 63, b = c & 31;
+    int r = curve((c >> 11) & 31, 31), g = curve((c >> 5) & 63, 63), b = curve(c & 31, 31);
+    g_ui[i] = (uint16_t)((r << 11) | (g << 5) | b);
     r = r * r256 >> 8; g = g * g256 >> 8; b = b * b256 >> 8;
     if (r > 31) r = 31;
     if (g > 63) g = 63;
@@ -63,6 +74,15 @@ void set_tint(int r256, int g256, int b256) {
     g_pal[i] = (uint16_t)((r << 11) | (g << 5) | b);
   }
   g_pal[0] = g_ui[0] = 0;
+}
+
+extern "C" void gc_set_depth(int percent) {
+  if (percent < 0) percent = 0;
+  if (percent > 100) percent = 100;
+  if (percent == g_depth) return;
+  g_depth = percent;
+  set_tint(g_tr, g_tg, g_tb);
+  gc_mark_all_dirty();
 }
 
 // --------------------------------------------------------------- drawing

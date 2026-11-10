@@ -13,6 +13,7 @@ int main() {
   for (int sc : scenes) {
     for (uint32_t seed = 1; seed <= 5; seed++) {
       gc_init(sc, seed, seed & 1);
+      gc_set_depth((int)(seed * 25) % 101);
       gc_set_status(0, "IP 192.168.100.200");
       gc_set_status(1, "AP GEEKQUEST-ABCD");
       gc_set_status(2, "A VERY LONG STATUS LINE THAT IS TOO WIDE");

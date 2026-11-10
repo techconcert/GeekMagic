@@ -110,6 +110,14 @@ label.check { display: flex; gap: 8px; align-items: center; font-size: .9rem; cu
         <label class="check"><input id="time-live" type="checkbox" checked> Use this computer's time</label>
       </div>
       <div class="group">
+        <h2>Colour depth</h2>
+        <div class="row">
+          <input id="depth" type="range" min="0" max="100" step="5" value="40">
+          <span id="depth-label" class="mono">40</span>
+        </div>
+        <p class="note">Matches the setting on the clock's status page. Higher darkens mid-tones.</p>
+      </div>
+      <div class="group">
         <h2>Display bus</h2>
         <label class="check"><input id="show-dirty" type="checkbox"> Highlight strips sent this frame</label>
         <dl class="stats">
@@ -231,10 +239,12 @@ label.check { display: flex; gap: 8px; align-items: center; font-size: .9rem; cu
   seg("scene", (v) => start(v));
   seg("speed", (v) => { speed = v; });
   $("time").addEventListener("input", () => { $("time-live").checked = false; });
+  $("depth").addEventListener("input", () => { $("depth-label").textContent = $("depth").value; ex.set_depth(+$("depth").value); });
 
   WebAssembly.instantiate(bytes, {}).then(({ instance }) => {
     ex = instance.exports; mem = ex.memory;
     start(1);
+    ex.set_depth(+$("depth").value);
     requestAnimationFrame(frame);
   });
 })();

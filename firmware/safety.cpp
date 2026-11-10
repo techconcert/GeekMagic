@@ -52,6 +52,7 @@ static char s_apName[24];
 static uint32_t s_crashes = 0;
 static uint32_t s_lastStage = 0;     // stage reached before the previous reset
 static bool s_timeSynced = false;
+static int s_depth = 40;
 static String s_tz = "<-03>3";   // default UTC-3; change on the status page (not saved yet)
 
 // ------------------------------------------------------------ boot guard
@@ -234,6 +235,8 @@ static void handleRoot() {
   b += F("<p><a href='/update'>Update firmware</a> <a href='/wifi'>WiFi setup</a></p>");
   b += F("<div class='box'><form method='post' action='/settings'>Brightness (0-100)<input name='bl' value='");
   b += lcd::brightness();
+  b += F("'>Colour depth (0-100, higher = deeper colours, fixes washed-out look)<input name='depth' value='");
+  b += s_depth;
   b += F("'>Time zone (POSIX TZ, e.g. &lt;-03&gt;3 for UTC-3)<input name='tz' value='");
   b += htmlEscape(s_tz);
   b += F("'><button>Apply</button> <small>Not saved across restarts yet.</small></form></div>");
@@ -344,6 +347,10 @@ static void handleWifiSave() {
 
 static void handleSettings() {
   if (server.hasArg("bl")) lcd::setBrightness(server.arg("bl").toInt());
+  if (server.hasArg("depth")) {
+    int d = server.arg("depth").toInt();
+    s_depth = d < 0 ? 0 : (d > 100 ? 100 : d);
+  }
   if (server.hasArg("tz") && server.arg("tz").length() && server.arg("tz").length() < 48) {
     s_tz = server.arg("tz");
     setenv("TZ", s_tz.c_str(), 1);
@@ -425,6 +432,7 @@ void loop() {
   }
 }
 
+int depth() { return s_depth; }
 bool safeMode() { return s_safe; }
 bool noDisplay() { return s_noDisplay; }
 bool updating() { return s_updating; }

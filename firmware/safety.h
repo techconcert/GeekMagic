@@ -25,6 +25,9 @@ String ipString();       // station IP, or "" when not connected
 const char* apName();
 const char* apPassword();
 
+// Colour depth tuning value (0..100) set from the status page. Not saved yet.
+int depth();
+
 // Boot progress marker, kept in RTC memory. After a crash the status page
 // shows the last stage reached, which tells us where the crash happened.
 void stage(uint8_t n);

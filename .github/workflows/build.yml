@@ -84,11 +84,15 @@ jobs:
           git clone --depth 1 --branch builds "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" site \
             || (mkdir site && cd site && git init -b builds && git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}")
           cd site
-          mkdir -p firmware
+          mkdir -p firmware/obsolete elf
+          # everything from earlier builds goes to firmware/obsolete so only current files sit in firmware/
+          for f in firmware/*.bin; do [ -e "$f" ] && git mv -f "$f" firmware/obsolete/ 2>/dev/null || mv -f "$f" firmware/obsolete/ 2>/dev/null || true; done
+          rm -f elf/*.elf
           cp ../out/GeekQuest-firmware/*.bin firmware/
-          mkdir -p elf && cp ../out/GeekQuest-elf/*.elf elf/
+          cp ../out/GeekQuest-elf/*.elf elf/
           cp ../out/GeekQuest-preview/index.html preview.html
           ls firmware/*.bin | sort | sed 's|firmware/||' > firmware/INDEX.txt
+          echo "Flash only the files listed here. Files in firmware/obsolete are old." >> firmware/INDEX.txt
           printf "Latest build: %s\nCommit: %s\n" "$(date -u +%FT%TZ)" "${{ github.sha }}" > LATEST.txt
           git add -A
           git commit -m "Build ${{ github.sha }}" || echo "nothing to commit"
