@@ -25,6 +25,10 @@ String ipString();       // station IP, or "" when not connected
 const char* apName();
 const char* apPassword();
 
+// Boot progress marker, kept in RTC memory. After a crash the status page
+// shows the last stage reached, which tells us where the crash happened.
+void stage(uint8_t n);
+
 // Restart in a way the crash counter does not count.
 void plannedRestart(bool intoSafeMode = false);
 

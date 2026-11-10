@@ -1,5 +1,6 @@
 #include "st7789.h"
 #include <SPI.h>
+#include "safety.h"
 
 namespace lcd {
 
@@ -53,6 +54,7 @@ void begin() {
   pinMode(PIN_DC, OUTPUT);
   digitalWrite(PIN_DC, HIGH);
 
+  safety::stage(20);
   SPI.begin();
   SPI.setFrequency(SPI_HZ);
   SPI.setDataMode(SPI_MODE3);
@@ -63,6 +65,7 @@ void begin() {
   digitalWrite(PIN_RST, LOW);  delay(50);
   digitalWrite(PIN_RST, HIGH); delay(120);
 
+  safety::stage(21);
   cmd(0x11); delay(120);                                         // sleep out
   { const uint8_t d[] = {0x1F, 0x1F, 0x00, 0x33, 0x33}; cmdData(0xB2, d, 5); }  // porch
   { const uint8_t d[] = {0x00}; cmdData(0x35, d, 1); }           // tearing effect off
@@ -83,15 +86,23 @@ void begin() {
   { const uint8_t d[] = {0xF0, 0x0E, 0x12, 0x0C, 0x0A, 0x15, 0x2E, 0x32, 0x44, 0x39, 0x17, 0x18, 0x2B, 0x2F};
     cmdData(0xE1, d, 14); }
   { const uint8_t d[] = {0x1D, 0x00, 0x00}; cmdData(0xE4, d, 3); }
+  safety::stage(22);
   cmd(s_inv ? 0x21 : 0x20);                                       // inversion
   cmd(0x29);                                                      // display on
+  safety::stage(23);
   fill(0x0000);
+  safety::stage(24);
   setBrightness(s_bright);
 }
 
 void pushRows(int y, int h, const uint16_t* px) {
   window(0, y, 239, y + h - 1);
-  SPI.writeBytes((const uint8_t*)px, (uint32_t)240 * h * 2);
+  // SPI.writeBytes reads 32 bits at a time: the buffer must be 4-byte aligned.
+  if (((uintptr_t)px & 3) == 0) {
+    SPI.writeBytes((const uint8_t*)px, (uint32_t)240 * h * 2);
+  } else {
+    for (int i = 0; i < 240 * h; i++) { SPI.write16(px[i], false); }
+  }
 }
 
 void fill(uint16_t c) {

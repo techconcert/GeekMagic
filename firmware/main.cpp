@@ -11,7 +11,7 @@
 #define GQ_SCENE GC_SCENE_TEST
 #endif
 
-static uint16_t s_strip[GC_STRIP_PIXELS];   // one 240x16 strip, 7.5 KB
+alignas(4) static uint16_t s_strip[GC_STRIP_PIXELS];   // one 240x16 strip, 7.5 KB
 static bool s_display = false;
 static uint32_t s_lastTick = 0, s_fpsT = 0, s_frames = 0, s_lastStatus = 0;
 
@@ -41,15 +41,20 @@ static void updateStatus() {
 void setup() {
   Serial.begin(115200);
   safety::begin();                       // 1. WiFi, rescue hotspot, update page
+  safety::stage(1);
 
   if (!safety::noDisplay()) {            // 2. display (skipped after 6 crashes)
+    safety::stage(2);
     lcd::begin();
     s_display = true;
+    safety::stage(3);
   }
   if (safety::safeMode()) gc_init(GC_SCENE_INFO, 1, 1);   // 3. game, unless in safe mode
   else gc_init(GQ_SCENE, ESP.random(), 1);
+  safety::stage(4);
   updateStatus();
   s_lastTick = s_fpsT = millis();
+  safety::stage(5);
 }
 
 void loop() {
@@ -64,11 +69,16 @@ void loop() {
 
   uint32_t mask = gc_dirty_mask();
   gc_clear_dirty();
+  static bool firstFrame = true;
   for (int s = 0; s < GC_ROWS; s++) {
     if (!(mask & (1u << s))) continue;
+    if (firstFrame) safety::stage(6);
     gc_render_strip(s, s_strip);
+    if (firstFrame) safety::stage(7);
     lcd::pushRows(s * GC_STRIP_H, GC_STRIP_H, s_strip);
+    if (firstFrame) safety::stage(8);
   }
+  if (firstFrame) { firstFrame = false; safety::stage(9); }
 
   s_frames++;
   if (now - s_fpsT >= 1000) {

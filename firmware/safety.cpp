@@ -34,6 +34,7 @@ struct RtcState {
   uint32_t crashes;
   uint32_t planned;     // 1 = the last restart was ours (OTA, reboot button)
   uint32_t forceSafe;   // 1 = user asked for safe mode on next boot
+  uint32_t stage;       // last boot stage reached (see safety::stage)
 };
 
 // ------------------------------------------------------------ state
@@ -49,6 +50,7 @@ static bool s_ap = false;
 static uint32_t s_staLostSince = 0;
 static char s_apName[24];
 static uint32_t s_crashes = 0;
+static uint32_t s_lastStage = 0;     // stage reached before the previous reset
 static bool s_timeSynced = false;
 static String s_tz = "<-03>3";   // default UTC-3; change on the status page (not saved yet)
 
@@ -64,6 +66,7 @@ static void bootGuard() {
   bool coldBoot = (s.magic != RTC_MAGIC) || reason == REASON_DEFAULT_RST || reason == REASON_EXT_SYS_RST;
   bool forceSafe = (s.magic == RTC_MAGIC) && s.forceSafe == 1;
 
+  s_lastStage = (s.magic == RTC_MAGIC) ? s.stage : 0;
   if (coldBoot) s.crashes = 0;
   else if (s.planned == 1) s.crashes = 0;
   else s.crashes++;
@@ -71,6 +74,7 @@ static void bootGuard() {
   s.magic = RTC_MAGIC;
   s.planned = 0;
   s.forceSafe = 0;
+  s.stage = 0;
   rtcWrite(s);
 
   s_crashes = s.crashes;
@@ -85,6 +89,14 @@ static void markStable() {
   s.crashes = 0;
   rtcWrite(s);
   s_crashes = 0;
+}
+
+void stage(uint8_t n) {
+  RtcState s;
+  rtcRead(s);
+  s.magic = RTC_MAGIC;
+  s.stage = n;
+  rtcWrite(s);
 }
 
 void plannedRestart(bool intoSafeMode) {
@@ -209,7 +221,16 @@ static void handleRoot() {
   b += F(" bytes</td></tr><tr><td>Room for update</td><td>"); b += freeOtaBytes();
   b += F(" bytes</td></tr><tr><td>Last reset</td><td>"); b += htmlEscape(ESP.getResetReason());
   b += F("</td></tr><tr><td>Crash counter</td><td>"); b += s_crashes;
-  b += F("</td></tr></table></div>");
+  b += F("</td></tr>");
+  const rst_info* ri = ESP.getResetInfoPtr();
+  if (ri && ri->reason == REASON_EXCEPTION_RST) {
+    char hx[120];
+    snprintf(hx, sizeof(hx), "cause %u, epc1 0x%08x, excvaddr 0x%08x, depc 0x%08x",
+             (unsigned)ri->exccause, (unsigned)ri->epc1, (unsigned)ri->excvaddr, (unsigned)ri->depc);
+    b += F("<tr><td>Crash details</td><td>"); b += hx; b += F("</td></tr>");
+    b += F("<tr><td>Boot stage at crash</td><td>"); b += s_lastStage; b += F("</td></tr>");
+  }
+  b += F("</table></div>");
   b += F("<p><a href='/update'>Update firmware</a> <a href='/wifi'>WiFi setup</a></p>");
   b += F("<div class='box'><form method='post' action='/settings'>Brightness (0-100)<input name='bl' value='");
   b += lcd::brightness();
@@ -230,6 +251,15 @@ static void handleInfo() {
   j += F("{\"version\":\""); j += F(GQ_VERSION);
   j += F("\",\"safe_mode\":"); j += s_safe ? F("true") : F("false");
   j += F(",\"crashes\":"); j += s_crashes;
+  {
+    const rst_info* ri = ESP.getResetInfoPtr();
+    if (ri && ri->reason == REASON_EXCEPTION_RST) {
+      char hx[120];
+      snprintf(hx, sizeof(hx), ",\"exccause\":%u,\"epc1\":%u,\"excvaddr\":%u,\"stage\":%u",
+               (unsigned)ri->exccause, (unsigned)ri->epc1, (unsigned)ri->excvaddr, (unsigned)s_lastStage);
+      j += hx;
+    }
+  }
   j += F(",\"heap\":"); j += ESP.getFreeHeap();
   j += F(",\"sketch_bytes\":"); j += ESP.getSketchSize();
   j += F(",\"free_ota_bytes\":"); j += freeOtaBytes();

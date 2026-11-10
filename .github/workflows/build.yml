@@ -59,6 +59,11 @@ jobs:
           name: GeekQuest-firmware
           path: dist/*.bin
           if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GeekQuest-elf
+          path: dist/*.elf
+          if-no-files-found: error
 
   publish:
     name: Publish to the builds branch
@@ -81,6 +86,7 @@ jobs:
           cd site
           mkdir -p firmware
           cp ../out/GeekQuest-firmware/*.bin firmware/
+          mkdir -p elf && cp ../out/GeekQuest-elf/*.elf elf/
           cp ../out/GeekQuest-preview/index.html preview.html
           ls firmware/*.bin | sort | sed 's|firmware/||' > firmware/INDEX.txt
           printf "Latest build: %s\nCommit: %s\n" "$(date -u +%FT%TZ)" "${{ github.sha }}" > LATEST.txt

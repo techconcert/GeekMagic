@@ -34,9 +34,11 @@ def after_bin(source, target, env):
     os.makedirs(out_dir, exist_ok=True)
     out = os.path.join(out_dir, f"SDP_GeekQuest_{envname}_{ver}.bin")
     shutil.copyfile(bin_path, out)
+    shutil.copyfile(elf_path, out[:-4] + ".elf")
     ok = check_bin.check(out, fs_start=fs_start_from_elf(elf_path))
     if not ok:
         os.remove(out)
+        os.remove(out[:-4] + ".elf")
         print("RECOVERY SAFETY CHECK FAILED - no .bin produced. See messages above.")
         env.Exit(1)
 
