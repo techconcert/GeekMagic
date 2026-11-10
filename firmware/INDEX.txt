@@ -1,2 +1,4 @@
 SDP_GeekQuest_quest_90b14bf.bin
+SDP_GeekQuest_quest_adc3bb3.bin
 SDP_GeekQuest_test_90b14bf.bin
+SDP_GeekQuest_test_adc3bb3.bin
