@@ -1,0 +1,20 @@
+GIMP Palette
+Name: GeekQuest
+Columns: 16
+#
+255   0 255	transparent
+ 26  20  36	outline
+ 46  92  40	dark green
+ 82 150  58	green
+140 200  75	light green
+100  64  38	dark brown
+160 108  60	brown
+216 180 112	sand
+ 40  72 150	dark blue
+ 70 135 215	blue
+160 210 240	foam
+240 200 160	skin
+196  58  42	red
+240 240 232	white
+128 128 144	grey
+240 192  64	yellow

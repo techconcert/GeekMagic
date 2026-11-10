@@ -1,0 +1,8 @@
+.pio/
+dist/
+preview/dist/
+__pycache__/
+*.pyc
+.DS_Store
+# stock firmware is the user's own backup; keep it out of the repo
+SDPro_*.bin
