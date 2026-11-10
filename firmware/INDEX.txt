@@ -1,6 +1,3 @@
-SDP_GeekQuest_quest_76274cd.bin
-SDP_GeekQuest_quest_90b14bf.bin
-SDP_GeekQuest_quest_adc3bb3.bin
-SDP_GeekQuest_test_76274cd.bin
-SDP_GeekQuest_test_90b14bf.bin
-SDP_GeekQuest_test_adc3bb3.bin
+SDP_GeekQuest_quest_29fc00d.bin
+SDP_GeekQuest_test_29fc00d.bin
+Flash only the files listed here. Files in firmware/obsolete are old.
