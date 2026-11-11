@@ -1,0 +1,108 @@
+# ODDA, the tavern keeper. Voice: warm, feeds everyone, calls the hero DEAR, knows all the gossip, stew solves everything.
+# Running jokes: the soup of the day is always yesterday's; Bram falls asleep at the table; Finn's one-word orders; Pip tells the frogs.
+# Counts: 20 scripts, 55 lines = 8 of 2 turns, 9 of 3, 3 of 4; the hero opens at least 6 (see docs/DESIGN-R3.md 4.5).
+# Run:  python3 tools/gen_talk.py --check content/talk/odda.txt
+
+# ---------------------------------------------------------------- ANY: personality (3)
+@ ANY
+N: TASTE THIS. DON'T|ASK WHAT'S IN IT.
+H: IT TASTES LIKE|A HUG WITH CARROTS.
+N: THAT IS THE EXACT|RECIPE. EAT, DEAR.
+
+@ ANY
+H: WHAT'S THE SOUP|OF THE DAY, {N}?
+N: THE SOUP OF THE DAY|IS YESTERDAY'S.
+H: THEN WHAT IS|TOMORROW'S SOUP?
+N: TODAY'S SOUP. WITH|ONE MORE ONION.
+
+@ ANY
+H: WHO WAS SNORING IN|HERE LAST NIGHT?
+N: NOBODY. BRAM JUST|SNORES IN HARMONY.
+
+# ---------------------------------------------------------------- TIME (2)
+@ TIME MORNING
+N: THE BREAD IS STILL|RISING. SO ARE YOU.
+H: I RISE FOR BREAD.|THE SUN IS A BONUS.
+
+@ TIME LATE
+H: IS THE KITCHEN|STILL OPEN, {N}?
+N: THE POT NEVER NAPS.|NEITHER DO I, DEAR.
+H: THEN WHO COOKS|TOMORROW? A GHOST?
+N: TOMORROW'S ME. SIT.|EAT. THEN BED.
+
+# ---------------------------------------------------------------- WEATHER AND TEMPERATURE (3)
+@ WX RAIN
+N: RAIN ON THE ROOF,|STEW ON THE STOVE.
+H: THEN I'M STAYING|UNTIL IT STOPS.
+
+@ WX STORM
+N: FINN DRIPPED IN AND|SAID NOTHING AGAIN.
+H: HOW DO YOU KNOW HE|ISN'T JUST SHY?
+N: HE TOOK TWO BOWLS.|THAT IS A SPEECH.
+
+@ TEMP COLD
+H: {T} OUT THERE! MY|EARS ARE ICICLES.
+N: SIT BY THE FIRE.|HOT CIDER, COMING.
+H: WITH CINNAMON? MY|EARS WANT THAT.
+N: THE EARS GET THEIR|OWN MUG, DEAR.
+
+# ---------------------------------------------------------------- SEASON (2)
+@ SEASON AUTUMN
+N: PUMPKINS ARE IN.|THE TEA GETS ONE.
+H: IN THE TEA? BRAVE.|I'M IN, {N}.
+
+@ SEASON SUMMER
+H: IT IS SUMMER AND|YOU SERVE STEW?
+N: I CALL IT CHILLED|STEW. SOUNDS RICH.
+
+# ---------------------------------------------------------------- FESTIVAL (1)
+@ FEST RUNNING
+N: FESTIVAL NIGHT! I|HAVE SEVEN POTS ON.
+H: SEVEN? I'LL TEST|EACH FOR SAFETY.
+N: ONE SPOON EACH.|I'M WATCHING YOU.
+
+# ---------------------------------------------------------------- WHAT THE HERO JUST DID (3)
+@ DID ATE
+N: YOU ATE SO FAST.|DID YOU TASTE IT?
+H: THE SPOON, THE BOWL|AND A LITTLE JOY.
+N: TAKE SECONDS. THE|JOY KEEPS WARM.
+
+@ DID FAINTED
+N: THE WHOLE VILLAGE|KNOWS YOU FAINTED.
+H: WHO TOLD THEM?|I WAS UNCONSCIOUS!
+N: PIP. THE FROGS KNOW|TOO. SIT AND EAT.
+
+@ DID FORAGED
+N: THOSE MUSHROOMS?|GIVE, GIVE, GIVE!
+H: FOR STEW? THEN I|WANT CREDIT, {N}.
+
+# ---------------------------------------------------------------- QUEST AND CHAPTER (2)
+@ QUEST NONE
+N: NO ERRANDS TODAY.|SO YOU'RE MY GUEST.
+H: A GUEST WHO EATS|FREE? I ACCEPT.
+N: FREE? THE GUEST|WASHES THE BOWLS.
+
+@ QUEST STORY
+N: THE OLD BELL MEANT|DINNER. I MISS IT.
+H: THEN I'LL FIX IT.|FOR DINNER'S SAKE.
+N: WISE HERO. YOU GET|THE FIRST BOWL.
+
+# ---------------------------------------------------------------- FRIENDSHIP, one per tier (3)
+@ FRIEND 1
+N: OH, IT'S YOU! SIT.|YOU LOOK HUNGRY.
+H: I ALWAYS LOOK THAT|WAY. IT'S A TALENT.
+
+@ FRIEND 2
+H: YOUR TAVERN FEELS|LIKE HOME, {N}.
+N: THEN BOOTS OFF.|HOME HAS RULES.
+
+@ FRIEND 3
+N: THIS BOWL IS YOURS.|IT SAYS HERO ON IT.
+H: MY OWN BOWL! I'LL|CRY INTO IT, {N}.
+N: GO AHEAD. THE SOUP|NEEDS SALT ANYWAY.
+
+# ---------------------------------------------------------------- GOAL (1)
+@ GOAL TOOL
+N: {G}? STEW IS|CHEAP, DEAR.
+H: CHEAP IS GOOD. I'LL|TAKE TWO BOWLS.
+N: TWO BOWLS IS NOT|SAVING, DEAR.
