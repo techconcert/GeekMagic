@@ -18,6 +18,17 @@ jobs:
           pip install pillow
           python tools/png2tiles.py
           git diff --exit-code lib/gamecore/src/assets_gen.h || (echo "assets_gen.h is stale: run python tools/png2tiles.py and commit" && exit 1)
+      # RECOVERY-CHANGE (chunk1): gates G4 and G5 (design 13.3). They need only Python.
+      - name: Recovery lint (G4) and its self-test
+        run: |
+          python3 tools/lint_safety.py
+          python3 tools/lint_safety.py --selftest
+      - name: check_bin self-test (G5)
+        run: python3 tools/check_bin_selftest.py
+      - name: Python tests (every test/*.py)
+        run: |
+          shopt -s nullglob
+          for t in test/*.py; do echo "=== $t"; python3 "$t"; done
       - name: Host tests (ASan/UBSan, one executable per test/test_*.cpp and core_smoke.cpp)
         run: |
           set -e
@@ -38,6 +49,28 @@ jobs:
           name: GeekQuest-preview
           path: preview/dist/index.html
 
+  # RECOVERY-CHANGE (chunk1): gate G8, recovery-change guard (design 8.10 rule 6)
+  guard:
+    name: Recovery-change guard
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: RECOVERY-CHANGE line and GQ_RECOVERY_REV bump when a recovery-contract file changed
+        run: |
+          set -e
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            BASE="${{ github.event.before }}"
+          else
+            git fetch origin main --quiet || true
+            BASE=$(git merge-base origin/main HEAD 2>/dev/null || echo 0000000000000000000000000000000000000000)
+          fi
+          echo "base: $BASE"
+          python3 tools/recovery_guard.py "$BASE" HEAD
+
   firmware:
     name: Firmware (.bin with recovery checks)
     runs-on: ubuntu-24.04
@@ -56,10 +89,14 @@ jobs:
       - run: pip install platformio
       - name: Build all environments
         run: pio run -e test -e quest
+      # RECOVERY-CHANGE (chunk1): gate G7 with the ELF (symbols, linker layout, RAM); the toolchain comes with PlatformIO
       - name: Recovery safety check (again, explicitly)
-        run: python tools/check_bin.py dist/*.bin
-      - name: Size report
-        run: ls -l dist/
+        run: python tools/check_bin.py --require-elf dist/*.bin
+      - name: Size report (G9)
+        run: |
+          ls -l dist/
+          git fetch origin builds --depth 1 --quiet || true
+          python tools/size_report.py dist/*.bin
       - uses: actions/upload-artifact@v4
         with:
           name: GeekQuest-firmware
@@ -71,11 +108,41 @@ jobs:
           path: dist/*.elf
           if-no-files-found: error
 
+  # RECOVERY-CHANGE (chunk1): quest with GQ_FLASH_SAVE=1 compiled in. Runs every gate, is NEVER published
+  # (approval A1 pending): its artifact has its own name and the publish job copies only GeekQuest-firmware.
+  firmware-flashsave:
+    name: Firmware with flash saving compiled in (gates only, not published)
+    runs-on: ubuntu-24.04
+    needs: core
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ hashFiles('platformio.ini') }}
+      - run: pip install platformio
+      - name: Build quest_save
+        run: pio run -e quest_save
+      - name: Recovery safety check (journal must be present)
+        run: python tools/check_bin.py --require-elf --flash-save 1 dist/*.bin
+      - name: Size report (G9)
+        run: python tools/size_report.py dist/*.bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GeekQuest-flashsave-UNAPPROVED-do-not-flash
+          path: dist/*.bin
+          if-no-files-found: error
+
   publish:
     name: Publish to the builds branch
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    needs: [core, firmware]
+    needs: [core, guard, firmware, firmware-flashsave]
     permissions:
       contents: write
     steps:
