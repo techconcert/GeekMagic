@@ -3,7 +3,6 @@
 void boot_decide(BootCounters* c, int cold, BootDecision* d) {
   uint32_t force = c->force_safe;
   bool planned = c->planned == 1;
-  bool restored = c->restored_save == 1;
   if (cold) {
     c->crashes = 0;
     c->slow = 0;
@@ -13,12 +12,10 @@ void boot_decide(BootCounters* c, int cold, BootDecision* d) {
     if (c->crashes < BOOT_COUNTER_CAP) c->crashes++;
     if (c->slow < BOOT_COUNTER_CAP) c->slow++;
   }
-  d->quarantine = (!cold && !planned && restored && c->crashes >= BOOT_CRASHES_QUARANTINE) ? 1 : 0;
   d->safe = (force == 1 || c->crashes >= BOOT_CRASHES_SAFE || c->slow >= BOOT_SLOW_SAFE) ? 1 : 0;
   d->no_display = c->crashes >= BOOT_CRASHES_NO_DISPLAY ? 1 : 0;
   c->planned = 0;
   c->force_safe = 0;
-  c->restored_save = 0;
 }
 
 void heapwatch_init(HeapWatch* w) {

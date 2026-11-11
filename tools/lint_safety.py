@@ -1,4 +1,4 @@
-"""Recovery-contract lint (design 13.3 gate G4, rules L1..L7 of section 13.3 plus L8).
+"""Recovery-contract lint (design 13.3 gate G4, rules L1..L7 of section 13.3 plus L8, L9; R2 adds the L2 flash rule).
 
     python tools/lint_safety.py              # lint the repository
     python tools/lint_safety.py --root DIR   # lint another tree (used by the self-test)
@@ -61,6 +61,11 @@ def strip_code(src):
     return "".join(out)
 
 
+def strip_comments(src):
+    """Removes // and /* */ comments but keeps string literals (L9 looks inside format strings)."""
+    return re.sub(r"//[^\n]*|/\*.*?\*/", lambda m: re.sub(r"[^\n]", " ", m.group(0)), src, flags=re.S)
+
+
 def read(root, rel):
     with open(os.path.join(root, rel), encoding="utf-8", errors="replace") as f:
         return f.read()
@@ -110,14 +115,17 @@ class Lint:
 
     # ---------------------------------------------------------------- L2, L3
     def l2_l3(self):
+        # R2: the clock never writes or erases flash by itself (the Updater does it for firmware uploads). There is no
+        # file left that may do so, and flashRead (the read-only probe of sector 0x3FA000) is allowed in prefs.cpp only.
         flash_only = r"\b(?:EEPROM|LittleFS|SPIFFS|flashEraseSector|flashWrite|spi_flash_\w*)\b"
         wifi_only = r"WiFi\s*\.\s*mode\s*\(|\benableAP\b|\benableSTA\b|\bsoftAP\w*"
         persist_total = 0
         for rel in files(self.root, "firmware"):
             base = os.path.basename(rel)
             t = strip_code(read(self.root, rel))
-            if base not in ("persist.cpp", "persist.h"):
-                self.scan("L2", rel, t, flash_only, "flash/file-system access outside persist.cpp: %s")
+            self.scan("L2", rel, t, flash_only, "flash write/erase or file-system access (R2 never writes flash): %s")
+            if base != "prefs.cpp":
+                self.scan("L2", rel, t, r"\bflashRead\b", "flash access outside prefs.cpp: %s")
             if base != "safety.cpp":
                 self.scan("L2", rel, t, r"\bESP\s*\.\s*(?:restart|reset)\b", "ESP.restart/reset outside safety.cpp")
                 self.scan("L2", rel, t, r"WiFi\s*\.\s*persistent\s*\(\s*true\s*\)", "WiFi.persistent(true) outside safety.cpp")
@@ -189,19 +197,33 @@ class Lint:
         for needle in (r"eagle\.flash\.4m3m\.ld", r"flash_size\s*=\s*4MB", r"flash_mode\s*=\s*dio"):
             if not re.search(needle, t):
                 self.add("L6", rel, 1, "platformio.ini must contain " + needle.replace("\\", ""))
-        # L8: approvals are off by default; turning one on is a deliberate edit of this rule as well
-        # flash saving is set per environment: =0 in test/quest, =1 only in the never-published quest_save
-        if not re.search(r"-DGQ_FLASH_SAVE=0\b", t):
-            self.add("L8", rel, 1, "build_flags must contain -DGQ_FLASH_SAVE=0 (approval not given yet; see design 12.2)")
+        # L8: approval switches. Approved so far: A2 automatic restarts (ON). A4 strict upload checks stays OFF, A3 (modem
+        # sleep off, -DGQ_NET_NO_SLEEP) is not approved, A1 (flash saving) no longer exists. Changing one is a deliberate
+        # edit of this rule as well.
+        if re.search(r"GQ_FLASH_SAVE", t):
+            self.add("L8", rel, 1, "GQ_FLASH_SAVE must not appear: R2 has no flash saving at all")
+        if re.search(r"GQ_NET_NO_SLEEP", t):
+            self.add("L8", rel, 1, "-DGQ_NET_NO_SLEEP (A3, modem sleep off) is not approved")
+        if not re.search(r"^\s*-DGQ_AUTO_RESTART=1\s*$", t, re.M):
+            self.add("L8", rel, 1, "[env] build_flags must contain -DGQ_AUTO_RESTART=1 (A2, approved)")
+        if not re.search(r"^\s*-DGQ_STRICT_UPLOAD=0\s*$", t, re.M):
+            self.add("L8", rel, 1, "[env] build_flags must contain -DGQ_STRICT_UPLOAD=0 (A4, not approved)")
+        # the display-test scene is compiled into [env:test] only
         for sec in re.split(r"(?m)^(?=\[)", t):
-            if "GQ_FLASH_SAVE=1" in sec and not sec.startswith("[env:quest_save]"):
-                self.add("L8", rel, 1, "GQ_FLASH_SAVE=1 is only allowed in [env:quest_save] (CI-only, never published)")
-        for flag in ("GQ_AUTO_RESTART", "GQ_STRICT_UPLOAD"):
-            if not re.search(r"^\s*-D" + flag + r"=0\s*$", t, re.M):
-                self.add("L8", rel, 1, "[env] build_flags must contain -D%s=0 (approval not given yet; see design 12.2)" % flag)
+            if "GQ_TEST_SCENE=1" in sec and not sec.startswith("[env:test]"):
+                self.add("L8", rel, 1, "-DGQ_TEST_SCENE=1 is only allowed in [env:test]")
+
+    # ---------------------------------------------------------------- L9
+    # No floating point formatting or parsing: it would pull ~14 KB of libc back in (see tools/pio_slim.py).
+    def l9(self):
+        pat = r"%[-+ #0-9.*]*[feEgGaA]\b|\b(?:atof|strtod|strtof|sscanf|dtostrf)\s*\("
+        for sub in ("firmware", "lib"):
+            for rel in files(self.root, sub):
+                t = strip_comments(read(self.root, rel))
+                self.scan("L9", rel, t, pat, "floating point formatting or parsing: %s")
 
     def run(self):
-        self.l1(); self.l2_l3(); self.l4(); self.l5_l7(); self.l6_l8()
+        self.l1(); self.l2_l3(); self.l4(); self.l5_l7(); self.l6_l8(); self.l9()
         return self.hits
 
 

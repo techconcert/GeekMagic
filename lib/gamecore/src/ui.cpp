@@ -6,7 +6,10 @@ static uint32_t g_since_init;
 static int      g_status_band;          // 1 = network status lines may be shown in the bottom band
 static uint8_t  g_status_idx;
 static uint32_t g_status_acc;
-static uint8_t  s_show_status;          // 1 = the band currently shows a status line instead of the goal
+static uint8_t  s_show_status;          // 1 = the band currently shows a network status line (AP name, password...)
+static uint32_t s_up_s, s_up_ms;        // uptime of the game since init, seconds (the clock restarts the game on every boot)
+static uint8_t  s_pg;                   // status band page: 0 hero state, 1 IP address, 2 uptime
+static uint32_t s_pg_acc;
 
 // dialogue box (bottom three strips)
 static struct {
@@ -27,8 +30,7 @@ static uint32_t s_hud_sig;
 static uint32_t s_band_sig;
 static uint32_t s_band_acc;
 static char     s_b_text[24];
-static uint8_t  s_b_icon;
-static int16_t  s_b_num, s_b_den;
+static uint8_t  s_b_icon, s_b_has_icon;
 
 // banner (achievement, collectible, star): replaces the band text for a few seconds
 static char     s_ban_text[20];
@@ -109,7 +111,6 @@ static const uint8_t UI_ITEM_ICON[GQ_ITEM_COUNT] GC_ROM_ATTR = {
 static const char* const SEASON_NAME[4] = {"SPRING", "SUMMER", "AUTUMN", "WINTER"};
 static const char* const SEASON_ABBR[4] = {"SPR", "SUM", "AUT", "WIN"};
 static const char* const WEATHER_NAME[GQ_W_COUNT] = {"CLEAR", "CLOUDY", "RAIN", "STORM", "FOG", "SNOW", "WINDY"};
-static const char* const FEST_NAME[4] = {"BLOSSOM FAIR", "LANTERN NIGHT", "HARVEST FEAST", "SNOW LIGHTS"};
 static const char* const WDAY_NAME[7] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
 static const char* const MONTH_NAME[12] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
 static const uint8_t PACK_ITEMS[12] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12};
@@ -220,34 +221,52 @@ static uint32_t hash_str(uint32_t h, const char* s) {
   return h;
 }
 
-// Band content priority (design 4.4 item 3): banner, quest step, goal savings, festival name.
+// Status band (R2): the bottom strip shows, in turn every 4 s, what the hero is doing, the clock's IP address and
+// the uptime, all at scale 2 (at most 18 characters). A banner (achievement, collectible) replaces it for a few
+// seconds. Only strip 14 is ever marked dirty, and only when the text on it changed.
+#define BAND_PAGE_MS 4000
+
+// Uptime as "UP 12 MIN", "UP 3H 25M" or "UP 2D 03H".
+static void uptime_text(char* buf, int cap) {
+  uint32_t s = s_up_s, d = s / 86400, h = s / 3600 % 24, m = s / 60 % 60;
+  char a[12], b[12];
+  int n = str_cat(buf, 0, "UP ", cap);
+  if (d || h) {
+    uint32_t big = d ? d : h, small = d ? h : m;
+    fmt_uint(a, big); fmt_uint(b, small);
+    n = str_cat(buf, n, a, cap);
+    n = str_cat(buf, n, d ? "D " : "H ", cap);
+    if (small < 10) n = str_cat(buf, n, "0", cap);
+    n = str_cat(buf, n, b, cap);
+    str_cat(buf, n, d ? "H" : "M", cap);
+  } else {
+    fmt_uint(a, m);
+    n = str_cat(buf, n, a, cap);
+    str_cat(buf, n, " MIN", cap);
+  }
+}
+
 static void band_update(void) {
   char t[24];
-  int icon = I_COIN, num = 0, den = 0, fest;
+  int icon = I_NONE;
   t[0] = 0;
   if (s_ban_ms > 0) {
     str_copy(t, s_ban_text, 24);
     icon = s_ban_icon;
-  } else if (quest_band(t, 24, &num, &den) && t[0]) {
-    icon = UI_I_SCROLL;
+  } else if (s_pg == 1 && g_status[0][0] == 'I') {
+    str_copy(t, g_status[0], 24);                 // "IP 192.168.1.20"
+  } else if (s_pg == 2) {
+    uptime_text(t, 24);
   } else {
-    t[0] = 0; num = den = 0;
-    if (!goal_text(t, 24, &num, &den)) {
-      t[0] = 0; num = den = 0;
-      fest = cal_festival();
-      if (fest >= 0 && fest < 4) { str_copy(t, FEST_NAME[fest], 24); icon = I_STAR; }
-    }
+    hero_status_text(t, 24);
   }
-  if (den > 0 && num > den) num = den;
-  if (num < 0) num = 0;
   uint32_t h = hash_str(2166136261u, t);
-  h = (h ^ (uint32_t)icon) * 16777619u;
-  h = (h ^ (uint32_t)num) * 16777619u;
-  h = (h ^ (uint32_t)den) * 16777619u;
+  h = (h ^ (uint32_t)(icon + 1)) * 16777619u;
   if (h != s_band_sig) {
     s_band_sig = h;
     str_copy(s_b_text, t, 24);
-    s_b_icon = (uint8_t)icon; s_b_num = (int16_t)num; s_b_den = (int16_t)den;
+    s_b_icon = (uint8_t)(icon < 0 ? 0 : icon);
+    s_b_has_icon = icon >= 0;
     if (!s_show_status) g_dirty |= 1u << (GC_ROWS - 1);
   }
 }
@@ -386,6 +405,8 @@ void ui_init(void) {
   s_band_sig = 0;
   s_band_acc = 0;
   s_b_text[0] = 0;
+  s_b_has_icon = 0;
+  s_up_s = s_up_ms = 0; s_pg = 0; s_pg_acc = 0;
   s_ban_ms = 0;
   s_ck = 0; s_cdir = 0; s_cacc = 0;
   s_card = 0; s_card_dbg = 0; s_card_ms = 0; s_card_acc = 0; s_card_pend = 0; s_card_next = 0;
@@ -418,7 +439,15 @@ static uint32_t hud_signature(void) {
 }
 
 void ui_tick(uint32_t dt) {
-  g_since_init += dt;
+  if (g_since_init < 0xFFFF0000u) g_since_init += dt;
+  s_up_ms += dt;
+  while (s_up_ms >= 1000) { s_up_ms -= 1000; if (s_up_s < 0xFFFFFFFFu) s_up_s++; }
+  s_pg_acc += dt;
+  if (s_pg_acc >= BAND_PAGE_MS) {
+    s_pg_acc = 0;
+    s_pg = (uint8_t)((s_pg + 1) % 3);
+    if (s_pg == 1 && g_status[0][0] != 'I') s_pg = 2;   // no address to show
+  }
   dialogue_tick(dt);
   curtain_tick(dt);
   card_tick(dt);
@@ -557,13 +586,16 @@ static void draw_band(uint16_t* out, int y0) {
     return;
   }
   if (!s_b_text[0]) return;
-  blit_sprite(out, y0, 0, y0, GC_ITEMS(s_b_icon), 0, 0, g_ui);
-  draw_text_n(out, y0, 20, y0, s_b_text, 18, g_ui[P_WHITE], 2);
-  if (s_b_den > 0) {
-    int w = 216 * s_b_num / s_b_den;
-    fill_rect(out, y0, 20, y0 + 14, 216, 2, g_ui[8]);
-    fill_rect(out, y0, 20, y0 + 14, w, 2, g_ui[P_YELLOW]);
+  int len = str_len(s_b_text);
+  if (len > 18) len = 18;
+  if (s_b_has_icon) {
+    blit_sprite(out, y0, 0, y0, GC_ITEMS(s_b_icon), 0, 0, g_ui);
+    draw_text_n(out, y0, 20, y0, s_b_text, len, g_ui[P_WHITE], 2);
+    return;
   }
+  int x = (GC_W - len * 12) / 2;
+  if (x < 2) x = 2;
+  draw_text_n(out, y0, x, y0, s_b_text, len, g_ui[P_WHITE], 2);
 }
 
 // ---- cards

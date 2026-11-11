@@ -46,14 +46,8 @@ void gc_mark_all_dirty(void);
 // Render one 240x16 strip into out[240*16].
 void gc_render_strip(int strip, uint16_t* out);
 
-// ---- persistence. The core does no I/O; the caller stores the bytes.
-#define GC_SAVE_BYTES 192
-enum { GC_SAVE_OK = 0, GC_SAVE_ERR_LEN, GC_SAVE_ERR_MAGIC, GC_SAVE_ERR_VERSION, GC_SAVE_ERR_CRC };
-int      gc_save_export(uint8_t* buf, int cap);        // village scene only. Returns GC_SAVE_BYTES, or 0.
-int      gc_save_check(const uint8_t* buf, int len);   // 0 = would be accepted; else GC_SAVE_ERR_*. No side effects.
-int      gc_save_import(const uint8_t* buf, int len);  // 1 = accepted, sanitized, applied. 0 = rejected, nothing changed.
-uint32_t gc_save_serial(void);                         // changes whenever saved state changed and is worth saving
-void     gc_reset_game(void);                          // day 1 defaults (same as a first boot)
+// Day-1 defaults (same as a first boot). The game is not saved anywhere: every restart starts on day 1.
+void     gc_reset_game(void);
 
 // ---- environment
 enum { GC_NET_ONLINE = 0, GC_NET_OFFLINE = 1, GC_NET_AP_ONLY = 2 };

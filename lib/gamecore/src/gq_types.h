@@ -73,10 +73,8 @@ enum { GQ_DBG_ADD_COINS, GQ_DBG_SET_DAY, GQ_DBG_SET_WEATHER, GQ_DBG_ADD_ITEM /*a
 // ---- hero presence (value of GQ_Q_HERO_PRESENCE)
 enum { GQ_PRES_NONE, GQ_PRES_SPRITE, GQ_PRES_DOOR, GQ_PRES_POSTCARD, GQ_PRES_CURTAIN };
 
-// ---- the saved game: 192 bytes, little-endian, no padding.
+// ---- the game state (R2: no longer saved anywhere; the game starts on day 1 after every restart). 192 bytes.
 // (The design calls the friendship array `friend`, which is a C++ keyword: it is `friend_` here.)
-#define GQ_SAVE_MAGIC   0x53514747u   // "GGQS"
-#define GQ_SAVE_VERSION 1
 #define GQ_SAVE_SIZE    192
 typedef struct {
   uint32_t magic;            //   0
@@ -167,7 +165,7 @@ static_assert(offsetof(GqSave, reserved) == 154, "reserved");
 
 typedef struct {
   GqSave   s;             // the saved part
-  uint32_t serial;        // gc_save_serial()
+  uint32_t serial;        // bumped by gq_touch() on state changes (tests use it)
   uint8_t  presence;      // GQ_Q_HERO_PRESENCE
   uint8_t  net, clock_approx, card_period, night_quiet;
   int16_t  year; uint8_t month, mday, wday;

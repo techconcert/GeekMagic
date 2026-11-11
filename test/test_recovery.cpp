@@ -1,6 +1,6 @@
-// Host tests for the pure parts of chunk 1: CRC32, crash counting, quarantine, heap watchdog,
-// maintenance restart rule, settings and backup format, upload checks.
-//   g++ -std=c++17 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -Wall -Wextra -Werror test/test_persist.cpp lib/gamecore/src/*.cpp lib/gqsafe/src/*.cpp
+// Host tests for the pure parts of chunk 1: CRC32, crash counting, heap watchdog,
+// maintenance restart rule, settings record, upload checks.
+//   g++ -std=c++17 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -Wall -Wextra -Werror test/test_recovery.cpp lib/gamecore/src/*.cpp lib/gqsafe/src/*.cpp
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,7 +11,6 @@
 #include "../lib/gqsafe/src/gq_crc32.h"
 #include "../lib/gqsafe/src/settings.h"
 #include "../lib/gqsafe/src/upcheck.h"
-#include "../lib/gamecore/src/gamecore.h"
 
 #define CHECK(c)                                                                  \
   do {                                                                            \
@@ -48,7 +47,7 @@ static void boots() {
   // power-on: everything clear
   Dev v; v.c.crashes = 4; v.c.slow = 3;
   v.boot(true);
-  CHECK(v.c.crashes == 0 && v.c.slow == 0 && !v.d.safe && !v.d.no_display && !v.d.quarantine);
+  CHECK(v.c.crashes == 0 && v.c.slow == 0 && !v.d.safe && !v.d.no_display);
 
   // fast crash loop: safe mode at the third unplanned reset, no display at the sixth
   Dev a; a.boot(true);
@@ -84,20 +83,6 @@ static void boots() {
   u.stable(); u.planned(); u.boot(false);
   CHECK(!u.d.safe);                                        // the flag is consumed
 
-  // quarantine: crash loop right after a boot that restored a save
-  Dev q; q.boot(true);
-  q.c.restored_save = 1; q.boot(false);                    // crash 1
-  CHECK(!q.d.quarantine && q.c.restored_save == 0);
-  q.c.restored_save = 1; q.boot(false);                    // crash 2 after a restore
-  CHECK(q.d.quarantine && !q.d.safe);
-  q.boot(false);                                           // crash 3: nothing was restored this time
-  CHECK(!q.d.quarantine && q.d.safe);
-  // never quarantine after a planned restart or a power-on
-  Dev r; r.boot(true);
-  r.c.restored_save = 1; r.c.crashes = 5; r.planned(); r.boot(false);
-  CHECK(!r.d.quarantine);
-  r.c.restored_save = 1; r.c.crashes = 5; r.boot(true);
-  CHECK(!r.d.quarantine);
   // counters saturate
   Dev z; z.boot(true);
   for (int i = 0; i < 3000; i++) z.boot(false);
@@ -153,12 +138,12 @@ static void maint() {
   b.hero_asleep = 1; b.hour = 12;               CHECK(maint_due(&b));
 }
 
-// ---------------------------------------------------------------- settings and backup file
+// ---------------------------------------------------------------- settings record
 static void settings() {
   GqSettings d;
   gqs_defaults(&d);
   CHECK(gqs_check(&d) == 0);
-  CHECK(sizeof(GqSettings) == 48 && GQS_BACKUP_BYTES == 240);
+  CHECK(sizeof(GqSettings) == 48);
   GqSettings t = d;
   t.brightness = 101; gqs_seal(&t); CHECK(gqs_check(&t) == 4);
   t = d; t.depth = 200; gqs_seal(&t); CHECK(gqs_check(&t) == 4);
@@ -185,33 +170,6 @@ static void settings() {
   CHECK(!gqs_tz_valid("\xC3\xA9\xC3\xA9"));
   CHECK(gqs_tz_valid("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefgh"));            // 34
   CHECK(!gqs_tz_valid("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi"));          // 35
-
-  // backup file round trip with a real game save
-  gc_init(GC_SCENE_VILLAGE, 7, 0);
-  uint8_t game[GQS_GAME_BYTES];
-  CHECK(gc_save_export(game, sizeof(game)) == (int)GQS_GAME_BYTES);
-  uint8_t file[GQS_BACKUP_BYTES];
-  gqs_backup_pack(&d, game, file);
-  GqSettings s2; uint8_t g2[GQS_GAME_BYTES];
-  gqs_backup_split(file, &s2, g2);
-  CHECK(gqs_check(&s2) == 0 && gc_save_check(g2, GQS_GAME_BYTES) == 0 && memcmp(g2, game, GQS_GAME_BYTES) == 0);
-  CHECK(memcmp(&s2, &d, sizeof(d)) == 0);
-  // every damaged byte of the game part is rejected by the core's own check
-  for (int i = 0; i < (int)GQS_GAME_BYTES; i++) {
-    uint8_t bad[GQS_GAME_BYTES];
-    memcpy(bad, game, sizeof(bad));
-    bad[i] ^= 0x10;
-    CHECK(gc_save_check(bad, GQS_GAME_BYTES) != 0);
-  }
-  // random 240-byte files are never accepted
-  uint32_t x = 99;
-  for (int k = 0; k < 2000; k++) {
-    uint8_t f[GQS_BACKUP_BYTES];
-    for (auto& c : f) { x ^= x << 13; x ^= x >> 17; x ^= x << 5; c = (uint8_t)x; }
-    GqSettings sx; uint8_t gx[GQS_GAME_BYTES];
-    gqs_backup_split(f, &sx, gx);
-    CHECK(gqs_check(&sx) != 0 || gc_save_check(gx, GQS_GAME_BYTES) != 0);
-  }
 }
 
 // ---------------------------------------------------------------- upload checks (8.2 threat 1)
@@ -312,6 +270,6 @@ int main() {
   maint();
   settings();
   upload();
-  printf("test_persist: all passed\n");
+  printf("test_recovery: all passed\n");
   return 0;
 }

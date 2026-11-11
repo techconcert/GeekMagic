@@ -1,6 +1,7 @@
 // GeekQuest game core: public API, drawing primitives, test and info scenes.
 // Rules for the core: no heap, no libc, no floating point (keeps it small and
 // identical on the ESP8266 and in the WebAssembly preview).
+#define GC_ASSETS_DEFINE 1   // this file owns the tile, sprite, item and font tables (assets_gen.h)
 #include "gc_internal.h"
 
 uint8_t  g_ground[GC_ROWS][GC_COLS];
@@ -16,6 +17,7 @@ static int      g_swap;
 static int      g_scene;
 static uint32_t g_rng = 1;
 
+#if GQ_TEST_SCENE
 // test scene state
 struct TestHero { int16_t x, y; uint8_t dir, step, moved; };
 static TestHero g_th;
@@ -26,6 +28,7 @@ static uint32_t g_water_acc;
 static int      g_status_cur;   // 0..4 (4 = fps line)
 static uint32_t g_status_acc;
 static int      g_fps_x10;
+#endif
 
 // ------------------------------------------------------------------ utils
 uint32_t gc_rnd() {
@@ -33,8 +36,6 @@ uint32_t gc_rnd() {
   return g_rng;
 }
 
-uint32_t gc_rng_get(void) { return g_rng; }
-void gc_rng_set(uint32_t state) { g_rng = state ? state : 0x1234567u; }
 int gc_scene_id(void) { return g_scene; }
 
 void mark_rows(int y, int h) {
@@ -54,7 +55,9 @@ void str_copy(char* dst, const char* src, int cap) {
 
 int str_len(const char* s) { int n = 0; while (s[n]) n++; return n; }
 
+#if GQ_TEST_SCENE
 static void fmt2(char* p, int v) { p[0] = (char)('0' + (v / 10) % 10); p[1] = (char)('0' + v % 10); }
+#endif
 
 static int g_depth;                       // 0..100
 static int g_tr = 256, g_tg = 256, g_tb = 256;
@@ -250,6 +253,7 @@ void render_ground_row(uint16_t* out, int s, uint8_t water_frame, uint8_t fire_f
 }
 
 // ------------------------------------------------------------ test scene
+#if GQ_TEST_SCENE
 static void build_test_map() {
   for (int y = 0; y < GC_ROWS; y++)
     for (int x = 0; x < GC_COLS; x++) {
@@ -368,6 +372,8 @@ static void test_render(int s, uint16_t* out) {
   if (s == GC_ROWS - 1) draw_test_bottom(out, y0);
 }
 
+#endif  // GQ_TEST_SCENE
+
 // ------------------------------------------------------------ info scene
 static void info_render(int s, uint16_t* out) {
   int y0 = s * GC_STRIP_H;
@@ -393,10 +399,14 @@ extern "C" void gc_init(int scene, uint32_t seed, int swap_bytes) {
   g_look_key = -1;
   g_look_wash = 0;
   if (scene == GC_SCENE_VILLAGE) G.card_period = 10;   // default: one info card every 10 minutes
+#if GQ_TEST_SCENE
   g_status_cur = 0;
   g_status_acc = 0;
+#endif
   if (scene == GC_SCENE_VILLAGE) village_init(seed);
-  else test_init();
+#if GQ_TEST_SCENE
+  else if (scene == GC_SCENE_TEST) test_init();
+#endif
   gc_mark_all_dirty();
 }
 
@@ -404,7 +414,9 @@ extern "C" void gc_tick(uint32_t dt_ms) {
   if (dt_ms > 250) dt_ms = 250;  // after a stall don't teleport
   if (g_scene == GC_SCENE_INFO) return;
   if (g_scene == GC_SCENE_VILLAGE) village_tick(dt_ms);
-  else test_tick(dt_ms);
+#if GQ_TEST_SCENE
+  else if (g_scene == GC_SCENE_TEST) test_tick(dt_ms);
+#endif
 }
 
 extern "C" void gc_set_clock(int hour, int minute, int valid) {
@@ -427,14 +439,18 @@ extern "C" void gc_set_status(int line, const char* text) {
   str_copy(g_status[line], text, 32);
   if (g_scene == GC_SCENE_INFO) g_dirty |= 1u << (4 + line * 2);
   else if (g_scene == GC_SCENE_VILLAGE) village_status_changed();
+#if GQ_TEST_SCENE
   else if (g_status_cur == line) g_dirty |= 1u << (GC_ROWS - 1);
+#endif
 }
 
 extern "C" void gc_set_fps(int fps_x10) {
+#if GQ_TEST_SCENE
   if (fps_x10 != g_fps_x10) {
     g_fps_x10 = fps_x10;
     if (g_scene == GC_SCENE_TEST && g_status_cur == 4) g_dirty |= 1u << (GC_ROWS - 1);
   }
+#endif
   weather_set_fps(fps_x10);   // governor input (design 6.1)
 }
 
@@ -446,7 +462,10 @@ extern "C" void gc_render_strip(int s, uint16_t* out) {
   if (s < 0 || s >= GC_ROWS) return;
   if (g_scene == GC_SCENE_INFO) info_render(s, out);
   else if (g_scene == GC_SCENE_VILLAGE) village_render(s, out);
-  else test_render(s, out);
+#if GQ_TEST_SCENE
+  else if (g_scene == GC_SCENE_TEST) test_render(s, out);
+#endif
+  else info_render(s, out);
   if (g_swap)
     for (int i = 0; i < GC_STRIP_PIXELS; i++) out[i] = (uint16_t)((out[i] << 8) | (out[i] >> 8));
 }

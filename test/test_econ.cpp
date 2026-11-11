@@ -8,6 +8,7 @@
 //      cap, goals bought over time, overflow becomes stars, coins are conserved.
 // Usage: test_econ [soak_days=30] [soak_seeds=2]
 #include "gq_test.h"
+#include "gq_sanitize.h"
 #include "../lib/gamecore/src/gc_internal.h"
 #include "../lib/gamecore/src/econ_data.h"
 

@@ -4,7 +4,9 @@
 
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
+#if GQ_MDNS
 #include <ESP8266mDNS.h>
+#endif
 #include <DNSServer.h>
 #include <Updater.h>
 #include <WiFiUdp.h>
@@ -16,20 +18,21 @@
 #include "st7789.h"
 // RECOVERY-CHANGE (0B): the WiFi ladder lives in netwatch (state machine in lib/gqsafe)
 #include "netwatch.h"
-// RECOVERY-CHANGE (chunk1): pure decision code (host-tested), persistence and the settings record
+// RECOVERY-CHANGE (chunk1): pure decision code (host-tested) and the settings record (kept in RTC memory)
 #include "bootlogic.h"
 #include "upcheck.h"
 #include "gq_crc32.h"
 #include "settings.h"
-#include "persist.h"
+#include "prefs.h"
 
 #include <coredecls.h>   // settimeofday_cb
 
 // RECOVERY-CHANGE (chunk1): approval switches (design 12.2). Both default OFF in platformio.ini.
-//   GQ_AUTO_RESTART  1 = WiFi, heap and maintenance restarts really restart; 0 = they are only logged (A2)
-//   GQ_STRICT_UPLOAD 1 = size, CRC and marker checks of an upload are enforced; 0 = computed and shown only (A4)
+//   GQ_AUTO_RESTART  1 = WiFi, heap and maintenance restarts really restart; 0 = they are only logged (A2, approved: 1)
+//   GQ_STRICT_UPLOAD 1 = size, CRC and marker checks of an upload are enforced; 0 = computed and shown only (A4, still 0)
+// GQ_MDNS (default 0) compiles the geekquest.local responder in; the clock shows its IP address instead.
 #ifndef GQ_AUTO_RESTART
-#define GQ_AUTO_RESTART 0
+#define GQ_AUTO_RESTART 1
 #endif
 #ifndef GQ_STRICT_UPLOAD
 #define GQ_STRICT_UPLOAD 0
@@ -43,8 +46,8 @@ static const uint32_t STABLE_AFTER_MS = 60UL * 1000;
 static const uint32_t AP_GRACE_MS = 10UL * 60 * 1000;  // AP stays up 10 min after boot
 // RECOVERY-CHANGE (0B): STA_LOST_AP_MS removed; the 60 s rule now lives in netfsm.cpp
 // RECOVERY-CHANGE (chunk1): CRASHES_FOR_* moved to lib/gqsafe/src/bootlogic.h
-// RECOVERY-CHANGE (chunk1): revision 2 = chunk 1 (design 8.10 rule 6)
-static const uint32_t GQ_RECOVERY_REV = 2;
+// RECOVERY-CHANGE (chunk1): revision 2 = chunk 1 (design 8.10 rule 6); 3 = R2 (no game saving, automatic restarts on)
+static const uint32_t GQ_RECOVERY_REV = 3;
 // RECOVERY-CHANGE (chunk1): timers of the restart gates
 static const uint32_t SLOW_STABLE_MS = 6UL * 3600 * 1000;   // `slow` counter cleared after 6 h of uptime
 static const uint32_t AUTO_MIN_UPTIME_MS = 30UL * 60 * 1000;
@@ -70,7 +73,7 @@ static const uint32_t RTC2_MAGIC = 0x47513242;  // "GQ2B"
 struct RtcState2 {
   uint32_t magic2;
   uint32_t slow;            // unplanned resets, cleared after 6 h of uptime
-  uint32_t restoredSave;    // the boot loaded a game save
+  uint32_t spareSave;       // unused since R2 (was: the boot loaded a game save); keeps the layout
   uint32_t wifiRestarts;    // WiFi-caused restarts since the last good link
   uint32_t everConnected;   // since power-on
   uint32_t lastReason;      // four RestartReason bytes, newest in the low byte
@@ -103,10 +106,8 @@ static char s_tz[GQS_TZ_MAX + 1] = "<-03>3";
 // RECOVERY-CHANGE (chunk1): restart machinery, health numbers, upload checks
 static RtcState2 s_r2;
 static bool s_cold = false;
-static bool s_quarantine = false;
 static bool s_slowCleared = false;
 static uint8_t s_pending = RR_NONE;
-static void (*s_beforeRestart)() = nullptr;
 static bool (*s_asleepFn)() = nullptr;
 static uint32_t s_loggedAuto[3];          // WiFi, heap, maintenance requests that were only logged this boot
 static HeapWatch s_hw;
@@ -119,9 +120,6 @@ static uint32_t s_freeAtUpload = 0;
 static UpChk s_upc;
 static UpRule s_upRule;
 static int s_upVerdict = -1;              // last upload check result (UV_*), -1 = none yet
-static uint8_t s_bk[GQS_BACKUP_BYTES];    // backup upload buffer
-static uint16_t s_bkLen = 0;
-static bool s_bkOver = false, s_bkOk = false;
 
 // GQ_OTA_MARKER is the ONLY copy of the marker text in the firmware: check_bin.py requires it exactly once,
 // the upload check scans for it in every image, and the page JavaScript only builds it from two pieces.
@@ -164,7 +162,6 @@ static void bootGuard() {
   c.slow = r2.slow;
   c.planned = valid1 ? s.planned : 0;
   c.force_safe = valid1 ? s.forceSafe : 0;
-  c.restored_save = r2.restoredSave;
   BootDecision d;
   boot_decide(&c, coldBoot ? 1 : 0, &d);
 
@@ -176,7 +173,6 @@ static void bootGuard() {
   rtcWrite(s);
 
   r2.slow = c.slow;
-  r2.restoredSave = c.restored_save;
   r2.bootCount++;
   s_r2 = r2;
   if (coldBoot) {
@@ -191,7 +187,6 @@ static void bootGuard() {
   s_crashes = c.crashes;
   s_safe = d.safe != 0;
   s_noDisplay = d.no_display != 0;
-  s_quarantine = d.quarantine != 0;
 }
 
 static void markStable() {
@@ -220,14 +215,13 @@ void tickMarker(uint8_t n) {
 // RECOVERY-CHANGE (chunk1): restart reasons. Boot-time unplanned resets are logged here too.
 const char* restartName(uint8_t reason) {
   static const char* const N[] = {"none", "user", "update", "WiFi", "heap", "maintenance",
-                                  "safe mode", "factory reset", "crash", "power-on"};
+                                  "safe mode", "-", "crash", "power-on"};
   return reason < sizeof(N) / sizeof(N[0]) ? N[reason] : "?";
 }
 
 static bool isAuto(uint8_t why) { return why == RR_WIFI || why == RR_HEAP || why == RR_MAINT; }
 
 static void doRestart(uint8_t why) {
-  if (s_beforeRestart) s_beforeRestart();      // persist::beforeRestart: RTC copy (flash only when due)
   RtcState s;
   rtcRead(s);
   s.magic = RTC_MAGIC;
@@ -245,7 +239,8 @@ static void doRestart(uint8_t why) {
 
 void requestRestart(RestartReason why) {
   if (why == RR_NONE || why == RR_CRASH || why == RR_POWER) return;
-  if (isAuto(why) && !GQ_AUTO_RESTART) {       // A2 not approved: log only
+  if (isAuto(why) && s_updating) return;       // never restart by ourselves while a firmware upload is running
+  if (isAuto(why) && !GQ_AUTO_RESTART) {       // switched off in this build: log only
     uint8_t i = why == RR_WIFI ? 0 : (why == RR_HEAP ? 1 : 2);
     s_loggedAuto[i]++;
     Serial.print(F("safety: automatic restart not enabled in this build, would restart: "));
@@ -254,8 +249,6 @@ void requestRestart(RestartReason why) {
   }
   if (s_pending == RR_NONE || !isAuto(why)) s_pending = why;   // a user request wins over an automatic one
 }
-
-void onBeforeRestart(void (*fn)()) { s_beforeRestart = fn; }
 
 bool autoRestartAllowed() {
   return millis() - s_bootMs >= AUTO_MIN_UPTIME_MS && !s_golden && !s_updating && !s_safe &&
@@ -274,9 +267,6 @@ void plannedRestart(bool intoSafeMode) {
   doRestart(intoSafeMode ? RR_SAFEMODE : RR_USER);
 }
 
-bool saveQuarantined() { return s_quarantine; }
-void clearQuarantine() { s_quarantine = false; }
-void noteGameRestored() { s_r2.restoredSave = 1; r2Write(); }
 bool coldBoot() { return s_cold; }
 
 uint8_t wifiRestarts() { return s_r2.wifiRestarts > 255 ? 255 : (uint8_t)s_r2.wifiRestarts; }
@@ -460,10 +450,6 @@ static void handleRoot() {
   char tmp[64];
   o.p(PSTR("<h2>GeekQuest clock</h2>"));
   if (s_safe) o.p(PSTR("<div class='box warn'><b>Safe mode.</b> The game is not running (it crashed repeatedly or safe mode was requested). Install a fixed firmware below, or restart normally.</div>"));
-  if (s_quarantine)
-    o.p(PSTR("<div class='box warn'><b>Saved game quarantined.</b> The clock crashed repeatedly after loading the saved game, so this boot started a fresh game and left the saved one untouched. "
-             "<form method='post' action='/quarantine'><button name='a' value='retry'>Try the saved game again</button> "
-             "<button name='a' value='discard'>Discard the saved game</button></form></div>"));
   if (s_heapWarn) o.p(PSTR("<div class='box warn'>Memory is low (under 12 KB free for a minute). Restarting from this page clears it.</div>"));
 
   // ---- status
@@ -516,33 +502,15 @@ static void handleRoot() {
   o.f(PSTR("<tr><td>Uptime</td><td>%ud %02uh %02um</td></tr><tr><td>FPS</td><td>%u.%u</td></tr><tr><td>Longest loop</td><td>%u ms</td></tr></table></div>"),
       (unsigned)(up / 86400), (unsigned)(up / 3600 % 24), (unsigned)(up / 60 % 60), (unsigned)(s_fps10 / 10), (unsigned)(s_fps10 % 10), (unsigned)s_loopMax);
 
-  // ---- game and saving (design 8.8, 9)
-  if (!s_safe) {
-    char g[96];
-    persist::gameSummary(g, sizeof(g));
-    o.p(PSTR("<div class='box'><b>Game</b><br>")); o.esc(g); o.p(PSTR("<br><small>Saved: "));
-  } else {
-    o.p(PSTR("<div class='box'><b>Saving</b><br><small>"));
+  {                                       // read-only probe of the sector a later release may save into (R2 never writes flash)
+    char pt[128];
+    prefs::probeText(pt, sizeof(pt));
+    o.p(PSTR("<div class='box'><small>")); o.esc(pt); o.p(PSTR("</small></div>"));
   }
-  o.esc(persist::statusText());
-  o.p(PSTR("</small><br>"
-           "<form method='post' action='/save'><button>Save now</button></form> <a href='/backup'>Download backup</a>"
-           "<form method='post' action='/backup' enctype='multipart/form-data'><br>Restore backup (.gqs file): <input type='file' name='b' accept='.gqs'><button>Restore</button></form><br>"
-           "<form method='post' action='/factory' onsubmit=\"return confirm('Start the game again from day 1? Settings are kept.')\"><button>Factory reset game</button></form> "
-           "<form method='post' action='/reset_settings' onsubmit=\"return confirm('Put brightness, colour depth, time zone and card period back to defaults?')\"><button>Reset settings</button></form>"));
-#if GQ_FLASH_SAVE
-  {
-    char pt[200];
-    persist::probeText(pt, sizeof(pt));
-    o.p(PSTR("<br><small>")); o.esc(pt);
-    o.p(PSTR("</small><br><form method='post' action='/flash_on'><button>Enable saving to flash</button></form> "
-             "<form method='post' action='/flash_off' onsubmit=\"return confirm('Erase the save sector?')\"><button>Disable and erase</button></form>"));
-  }
-#endif
-  o.p(PSTR("</div><p><a href='/update'>Update firmware</a> <a href='/wifi'>WiFi setup</a></p>"));
+  o.p(PSTR("<p><a href='/update'>Update firmware</a> <a href='/wifi'>WiFi setup</a></p>"));
 
   // ---- settings
-  const GqSettings& st = persist::settings();
+  const GqSettings& st = prefs::settings();
   o.f(PSTR("<div class='box'><form method='post' action='/settings' style='display:block'><input type='hidden' name='f' value='1'>Brightness (0-100)<input name='bl' value='%d'>"
            "Colour depth (0-100, higher = deeper colours, fixes washed-out look)<input name='depth' value='%d'>Time zone (POSIX TZ, e.g. &lt;-03&gt;3 for UTC-3)<input name='tz' value='"),
       lcd::brightness(), s_depth);
@@ -550,7 +518,8 @@ static void handleRoot() {
   o.f(PSTR("'>Info card every (minutes, 0 = off)<input name='card' value='%u'>"
            "<label><input type='checkbox' name='maint' value='1'%s> Weekly maintenance restart (about 04:00)</label><br>"
            "<label><input type='checkbox' name='night' value='1'%s> Quiet at night</label><br>"
-           "<button>Apply</button> <small>Saved to the clock's memory (survives restarts and updates).</small></form></div>"),
+           "<button>Apply</button> <small>Kept in the clock's memory (survives restarts and updates, not unplugging).</small></form>"
+           "<form method='post' action='/reset_settings' onsubmit=\"return confirm('Put brightness, colour depth, time zone and card period back to defaults?')\"><button>Reset settings</button></form></div>"),
       (unsigned)st.card_period, (st.flags & GQS_FLAG_MAINT) ? " checked" : "", (st.flags & GQS_FLAG_NIGHT) ? " checked" : "");
   o.p(PSTR("<div class='box'>Display test (only if colours look wrong; not saved):<br><br>"
            "<a href='/display?madctl=0'>RGB order</a> <a href='/display?madctl=8'>BGR order</a> "
@@ -587,13 +556,15 @@ static void handleInfo() {
   o.f(PSTR(",\"rssi\":%d,\"channel\":%d,\"bssid\":\"%s\",\"ntp_age_s\":%d,\"reconnects\":%u,\"wifi_restarts\":%u"),
       WiFi.status() == WL_CONNECTED ? (int)WiFi.RSSI() : 0, (int)WiFi.channel(), tmp,
       netwatch::ntpAgeSeconds() == 0xFFFFFFFFu ? -1 : (int)netwatch::ntpAgeSeconds(), (unsigned)netwatch::reconnects(), (unsigned)s_r2.wifiRestarts);
-  o.f(PSTR(",\"fps\":%u.%u,\"loop_max_ms\":%u,\"quarantined\":%s,\"heap_warn\":%s,\"boots\":%u,\"restarts\":["),
-      (unsigned)(s_fps10 / 10), (unsigned)(s_fps10 % 10), (unsigned)s_loopMax, s_quarantine ? "true" : "false", s_heapWarn ? "true" : "false", (unsigned)s_r2.bootCount);
+  o.f(PSTR(",\"fps\":%u.%u,\"loop_max_ms\":%u,\"heap_warn\":%s,\"boots\":%u,\"restarts\":["),
+      (unsigned)(s_fps10 / 10), (unsigned)(s_fps10 % 10), (unsigned)s_loopMax, s_heapWarn ? "true" : "false", (unsigned)s_r2.bootCount);
   sendReasons(o, true);
-  o.f(PSTR("],\"auto_restart\":%d,\"strict_upload\":%d,\"flash_save\":%d,\"save\":\""), (int)GQ_AUTO_RESTART, (int)GQ_STRICT_UPLOAD, (int)GQ_FLASH_SAVE);
-  o.esc(persist::statusText());
-  o.p(PSTR("\",\"game\":\""));
-  if (!s_safe) { char g[96]; persist::gameSummary(g, sizeof(g)); o.esc(g); }
+  o.f(PSTR("],\"auto_restart\":%d,\"strict_upload\":%d,\"save_sector\":\""), (int)GQ_AUTO_RESTART, (int)GQ_STRICT_UPLOAD);
+  {
+    char pt[128];
+    prefs::probeText(pt, sizeof(pt));
+    o.esc(pt);
+  }
   o.p(PSTR("\"}"));
   o.flush();
   endChunked();
@@ -610,10 +581,14 @@ static void handleUpdatePage() {
   endPage();
 }
 
+#if GQ_MDNS
 static void mdnsStart() {
   MDNS.begin("geekquest");
   MDNS.addService("http", "tcp", 80);
 }
+#else
+static void mdnsStart() {}
+#endif
 
 static void uploadFail(const String& why) {
   if (!s_upFailed) {
@@ -642,7 +617,9 @@ static void handleUpdateChunk() {
     upchk_init(&s_upc, GQ_OTA_MARKER);
     s_upVerdict = -1;
     WiFiUDP::stopAll();
+#if GQ_MDNS
     MDNS.end();
+#endif
     s_freeAtUpload = ESP.getFreeHeap();
     Serial.print(F("update: start, free heap "));
     Serial.println(s_freeAtUpload);
@@ -678,6 +655,7 @@ static void handleUpdateChunk() {
     if (!Update.end(true)) uploadFail(String(F("verify failed: ")) + Update.getErrorString());
   } else if (up.status == UPLOAD_FILE_ABORTED) {
     uploadFail(F("upload aborted"));
+    s_updating = false;                        // nothing was committed: the game and the restart rules resume
   }
   yield();
 }
@@ -725,7 +703,7 @@ static int argInt(const char* name, int lo, int hi, int dflt) {
 static void handleSettings() {
   touch();
   // RECOVERY-CHANGE (chunk1): the whole form is validated first; an invalid value changes nothing.
-  GqSettings s = persist::settings();
+  GqSettings s = prefs::settings();
   s.brightness = (uint8_t)argInt("bl", 0, 100, s.brightness);
   s.depth = (uint8_t)argInt("depth", 0, 100, s.depth);
   s.card_period = (uint8_t)argInt("card", 0, GQS_CARD_PERIOD_MAX, s.card_period);
@@ -741,7 +719,7 @@ static void handleSettings() {
     s.tz[sizeof(s.tz) - 1] = 0;
   }
   gqs_seal(&s);
-  persist::setSettings(s);
+  prefs::set(s);
   redirectHome();
 }
 
@@ -754,58 +732,7 @@ static void handleDisplay() {
   redirectHome();
 }
 
-// RECOVERY-CHANGE (chunk1): controls of design 8.8. Every state-changing POST answers 303 to /.
-static void handleBackupGet() {
-  touch();
-  uint8_t buf[GQS_BACKUP_BYTES];
-  if (!persist::backupExport(buf)) { server.send(503, F("text/plain"), F("No saved game to export yet.")); return; }
-  char d[72];
-  char g[96];
-  persist::gameSummary(g, sizeof(g));
-  int day = 0;
-  const char* q = strstr(g, "day ");
-  if (q) day = atoi(q + 4);
-  snprintf_P(d, sizeof(d), PSTR("attachment; filename=\"geekquest-day%d.gqs\""), day);
-  server.sendHeader(F("Content-Disposition"), d);
-  server.setContentLength(GQS_BACKUP_BYTES);
-  server.send(200, F("application/octet-stream"), "");
-  server.sendContent_P((PGM_P)buf, GQS_BACKUP_BYTES);
-}
-
-static void handleBackupChunk() {
-  HTTPUpload& up = server.upload();
-  if (up.status == UPLOAD_FILE_START) {
-    s_bkLen = 0; s_bkOver = false; s_bkOk = false;
-  } else if (up.status == UPLOAD_FILE_WRITE) {
-    if (s_bkLen + up.currentSize > sizeof(s_bk)) s_bkOver = true;
-    else { memcpy(s_bk + s_bkLen, up.buf, up.currentSize); s_bkLen += (uint16_t)up.currentSize; }
-  } else if (up.status == UPLOAD_FILE_END) {
-    s_bkOk = !s_bkOver && s_bkLen == GQS_BACKUP_BYTES && persist::backupImport(s_bk, s_bkLen);
-  }
-}
-
-static void handleBackupDone() {
-  touch();
-  if (!s_bkOk) {
-    server.send(400, F("text/plain"), F("Backup rejected: the file is not a valid GeekQuest backup (wrong size, damaged, or from an incompatible version). Nothing was changed."));
-    return;
-  }
-  redirectHome();
-}
-
-static void handleSave() { touch(); persist::saveNow(); redirectHome(); }
-static void handleFactory() { touch(); persist::factoryResetGame(); clearQuarantine(); redirectHome(); }
-static void handleResetSettings() { touch(); persist::resetSettings(); redirectHome(); }
-static void handleQuarantine() {
-  touch();
-  if (server.arg("a") == "retry") { clearQuarantine(); server.send(200, F("text/plain"), F("Restarting with the saved game")); requestRestart(RR_USER); return; }
-  if (server.arg("a") == "discard") persist::discardSavedGame();
-  redirectHome();
-}
-#if GQ_FLASH_SAVE
-static void handleFlashOn() { touch(); persist::flashEnable(); redirectHome(); }
-static void handleFlashOff() { touch(); persist::flashDisableAndErase(); redirectHome(); }
-#endif
+static void handleResetSettings() { touch(); prefs::reset(); redirectHome(); }
 
 static void handleNotFound() {
   netwatch::noteHttp();   // RECOVERY-CHANGE (0B)
@@ -854,21 +781,13 @@ void begin() {
   // RECOVERY-CHANGE (chunk1): restarts go through requestRestart(); the reply is sent first, loop() restarts
   server.on("/reboot", HTTP_POST, []() { server.send(200, F("text/plain"), F("Restarting")); requestRestart(RR_USER); });
   server.on("/safemode", HTTP_POST, []() { server.send(200, F("text/plain"), F("Restarting into safe mode")); requestRestart(RR_SAFEMODE); });
-  // RECOVERY-CHANGE (chunk1): new routes of design 8.8
-  server.on("/backup", HTTP_GET, handleBackupGet);
-  server.on("/backup", HTTP_POST, handleBackupDone, handleBackupChunk);
-  server.on("/save", HTTP_POST, handleSave);
-  server.on("/factory", HTTP_POST, handleFactory);
   server.on("/reset_settings", HTTP_POST, handleResetSettings);
-  server.on("/quarantine", HTTP_POST, handleQuarantine);
-#if GQ_FLASH_SAVE
-  server.on("/flash_on", HTTP_POST, handleFlashOn);
-  server.on("/flash_off", HTTP_POST, handleFlashOff);
-#endif
   server.onNotFound(handleNotFound);
   server.begin();
 
+#if GQ_MDNS
   mdnsStart();
+#endif
 
   settimeofday_cb([]() { s_timeSynced = true; netwatch::noteNtp(); });   // RECOVERY-CHANGE (0B): noteNtp
   configTime(s_tz, "pool.ntp.org", "time.google.com");
@@ -881,7 +800,7 @@ static void heapWatchdog() {
   uint8_t r = heapwatch_step(&s_hw, now, ESP.getFreeHeap(), ESP.getMaxFreeBlockSize());
   s_heapWarn = (r & HW_WARN) != 0;
   if (r & HW_RESTART) {
-    if (!s_heapReq) { s_heapReq = true; requestRestart(RR_HEAP); }
+    if (!s_heapReq && !s_updating) { s_heapReq = true; requestRestart(RR_HEAP); }
   } else {
     s_heapReq = false;
     if (s_pending == RR_HEAP) s_pending = RR_NONE;       // the condition went away: cancel a waiting restart
@@ -895,7 +814,7 @@ static void maintenanceCheck() {
   last = now;
   MaintIn in;
   memset(&in, 0, sizeof(in));
-  in.enabled = (persist::settings().flags & GQS_FLAG_MAINT) ? 1 : 0;
+  in.enabled = (prefs::settings().flags & GQS_FLAG_MAINT) ? 1 : 0;
   in.uptime_ms = now - s_bootMs;
   int h = 0, m = 0;
   in.clock_valid = localTime(h, m) ? 1 : 0;
@@ -906,7 +825,7 @@ static void maintenanceCheck() {
   in.updating = s_updating ? 1 : 0;
   in.since_http_ms = msSinceRequest();
   if (maint_due(&in)) {
-    if (!s_maintReq) { s_maintReq = true; requestRestart(RR_MAINT); }
+    if (!s_maintReq && !s_updating) { s_maintReq = true; requestRestart(RR_MAINT); }
   } else {
     s_maintReq = false;
     if (s_pending == RR_MAINT) s_pending = RR_NONE;
@@ -916,7 +835,9 @@ static void maintenanceCheck() {
 void loop() {
   server.handleClient();
   if (s_ap) dns.processNextRequest();
+#if GQ_MDNS
   MDNS.update();
+#endif
   // RECOVERY-CHANGE (0B): wifiPolicy() replaced by the ladder; absolute millis() comparisons replaced by latched flags
   if (s_golden && millis() - s_bootMs >= AP_GRACE_MS) s_golden = false;
   netwatch::loop();

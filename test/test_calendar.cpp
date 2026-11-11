@@ -1,6 +1,7 @@
 // Chunk 6: the day rule under clock trouble, seasons, weather statistics, festivals, daily events,
 // particle budget and governor, look ranges, lightning, restore (design 5, 6.2, 6.4, 8.10).
 #include "gq_test.h"
+#include "gq_sanitize.h"
 #include "../lib/gamecore/src/gq_mod.h"
 #include "../lib/gamecore/src/gq_types.h"
 
@@ -344,36 +345,20 @@ static void test_lightning() {
   }
 }
 
-// save and restore: weather, hours and flags survive; a restore never changes the day
+// a restart starts a fresh game on day 1; damaged calendar fields are clamped by the test sanitizer
+// and the module never trusts them
 static void test_restore() {
   start(17 * 60);
   gc_debug(GQ_DBG_SET_DAY, 27);                  // day 7 of winter: festival
   feed(17 * 60);
   feed(17 * 60 + 1);
   CHECK(cal_festival() == GQ_WINTER);
-  uint8_t buf[GC_SAVE_BYTES];
-  CHECK(gc_save_export(buf, GC_SAVE_BYTES) == GC_SAVE_BYTES);
-  int d = day(), w = cal_weather();
-  uint8_t hours = G.s.weather_hours, flags = G.s.festival_flags;
-  gc_set_clock(23, 59, 1);
-  CHECK(gc_save_import(buf, GC_SAVE_BYTES) == 1);
-  CHECK(day() == d);                             // restore at 23:59 does not advance the day
-  gc_set_clock(17, 2, 1);
-  gc_init(GC_SCENE_VILLAGE, 3, 0);
-  CHECK(gc_save_import(buf, GC_SAVE_BYTES) == 1);
-  CHECK(day() == d && cal_weather() == w && G.s.weather_hours == hours && G.s.festival_flags == flags);
-  // damaged calendar fields are clamped by the sanitizer and the module never trusts them
+  gc_reset_game();
+  CHECK(gc_query(GQ_Q_DAY) == 0 && gc_query(GQ_Q_COINS) == 3);
   GqSave s = G.s;
   s.weather = 200; s.weather_hours = 200; s.event_today = 99; s.festival_flags = 0xFF; s.minute = 9999;
   gq_save_sanitize(&s);
   CHECK(s.weather < GQ_W_COUNT && s.weather_hours <= 8 && s.event_today <= 12 && (s.festival_flags & 0xF0) == 0 && s.minute <= 1439);
-  // snow outside winter is replaced on load
-  start(10 * 60);
-  gc_debug(GQ_DBG_SET_DAY, 3);
-  gc_debug(GQ_DBG_SET_WEATHER, GQ_W_SNOW);
-  CHECK(gc_save_export(buf, GC_SAVE_BYTES) == GC_SAVE_BYTES);
-  CHECK(gc_save_import(buf, GC_SAVE_BYTES) == 1);
-  CHECK(cal_weather() != GQ_W_SNOW);
 }
 
 int main() {

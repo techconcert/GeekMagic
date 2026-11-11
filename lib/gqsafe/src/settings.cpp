@@ -43,15 +43,3 @@ int gqs_check(const GqSettings* s) {
   if (s->tz[sizeof(s->tz) - 1] != 0 || !gqs_tz_valid(s->tz)) return 5;
   return 0;
 }
-
-void gqs_backup_pack(const GqSettings* s, const uint8_t game[GQS_GAME_BYTES], uint8_t out[GQS_BACKUP_BYTES]) {
-  const uint8_t* sp = (const uint8_t*)s;
-  for (uint32_t i = 0; i < GQS_SETTINGS_BYTES; i++) out[i] = sp[i];
-  for (uint32_t i = 0; i < GQS_GAME_BYTES; i++) out[GQS_SETTINGS_BYTES + i] = game[i];
-}
-
-void gqs_backup_split(const uint8_t in[GQS_BACKUP_BYTES], GqSettings* s, uint8_t game[GQS_GAME_BYTES]) {
-  uint8_t* sp = (uint8_t*)s;
-  for (uint32_t i = 0; i < GQS_SETTINGS_BYTES; i++) sp[i] = in[i];
-  for (uint32_t i = 0; i < GQS_GAME_BYTES; i++) game[i] = in[GQS_SETTINGS_BYTES + i];
-}

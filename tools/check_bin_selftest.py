@@ -92,13 +92,17 @@ for needle, what in check_bin.REQUIRED_STRINGS:
     expect(f"missing {what}", False, verdict(make(drop=needle)))
 expect("marker twice", False, verdict(make(marker_copies=2)))
 
-# ---- flash journal rule
-expect("GQJ1 in a build without flash saving", False, verdict(make(extra=b"GQJ1")))
-expect("flash saving build without GQJ1", False, verdict(make(extra=b"Save sector"), flash_save=True))
-expect("flash saving build without the probe line", False, verdict(make(extra=b"GQJ1"), flash_save=True))
-expect("flash saving build with both", True, verdict(make(extra=b"GQJ1 Save sector"), flash_save=True))
-expect("flash saving inferred from the name", True, verdict(make(extra=b"GQJ1 Save sector"), name="SDP_GeekQuest_quest_save_v1.bin"))
-expect("name says save but no journal", False, verdict(make(), name="SDP_GeekQuest_quest_save_v1.bin"))
+# ---- flash journal rule (R2: no flash saving anywhere)
+expect("GQJ1 in any build", False, verdict(make(extra=b"GQJ1")))
+expect("GQJ1 and Save sector in any build", False, verdict(make(extra=b"GQJ1 Save sector")))
+
+# ---- display-test scene must not be in the quest build
+expect("test scene symbol in the quest build", False,
+       verdict(make(), name="SDP_GeekQuest_quest_x.bin", elf=elf(symbols=GOOD_ELF["symbols"] + ["_ZZL11test_renderiPtE5cycle"])))
+expect("test scene symbol in the test build", True,
+       verdict(make(), name="SDP_GeekQuest_test_x.bin", elf=elf(symbols=GOOD_ELF["symbols"] + ["_ZZL11test_renderiPtE5cycle"])))
+expect("quest build without test scene symbols", True,
+       verdict(make(), name="SDP_GeekQuest_quest_x.bin", elf=elf(symbols=GOOD_ELF["symbols"] + ["_ZL10quest_stepP5Actorj", "village_render"])))
 
 # ---- ELF rules
 expect("no ELF, not required", True, verdict(make()))

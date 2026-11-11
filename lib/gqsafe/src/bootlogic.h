@@ -8,7 +8,6 @@
 #define BOOT_CRASHES_SAFE        3u
 #define BOOT_CRASHES_NO_DISPLAY  6u
 #define BOOT_SLOW_SAFE           5u
-#define BOOT_CRASHES_QUARANTINE  2u
 #define BOOT_COUNTER_CAP       1000u
 
 typedef struct {
@@ -16,16 +15,15 @@ typedef struct {
   uint32_t slow;           // unplanned resets, cleared after 6 h of uptime
   uint32_t planned;        // the previous restart was ours
   uint32_t force_safe;     // the user asked for safe mode
-  uint32_t restored_save;  // the previous boot loaded a game save
 } BootCounters;
 
 typedef struct {
-  uint8_t safe, no_display, quarantine;
+  uint8_t safe, no_display;
 } BootDecision;
 
 // Call once per boot with the counters read from RTC (zeroed if RTC was invalid).
 // `cold` = power-on, reset button or invalid RTC. Updates the counters for storing
-// (planned, force_safe and restored_save are cleared) and fills the decision.
+// (planned and force_safe are cleared) and fills the decision.
 void boot_decide(BootCounters* c, int cold, BootDecision* d);
 
 // ---- heap watchdog (8.6): call every 10 s

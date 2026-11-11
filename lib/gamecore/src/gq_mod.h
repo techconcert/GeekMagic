@@ -7,13 +7,7 @@
 // ---- game.cpp (chunk 0)
 void gq_emit(int ev, int a, int b);              // never re-entrant: events raised inside a handler are queued (8 deep) and
                                                  // delivered after the current one; a full queue drops the event and counts it
-void gq_touch(void);                             // G.serial++ : call after any change worth saving
-uint32_t gq_crc32(const uint8_t* p, int n);
-
-// ---- save.cpp (chunk 0)
-int  gq_save_validate(const uint8_t* buf, int len);      // GC_SAVE_*
-void gq_save_sanitize(GqSave* s);                        // clamps every field to the ranges in 10.3
-void gq_save_defaults(GqSave* s);                        // day-1 state
+void gq_touch(void);                             // G.serial++ : call after any change of the game state
 
 // ---- calendar.cpp, weather.cpp (chunk 6)
 void cal_init(void);                             // from G.s
@@ -67,7 +61,7 @@ int  quest_band(char* buf, int cap, int* num, int* den); // 1 = quest text for t
 int  quest_title(char* buf, int cap);
 const char* gq_text(int id, char* buf, int cap); // copies string id from flash; returns buf
 const char* gq_npc_name(int npc);                // RAM pointer to a static 8-byte buffer
-// Additions of chunk 0 (needed by gq_save_sanitize to clamp q_active / q_step; stubs return 0):
+// Table sizes (used by the tests):
 int  quest_count(void);                          // number of quests in the table
 int  quest_steps(int quest);                     // number of steps of that quest
 
@@ -78,6 +72,7 @@ void world_render(int strip, uint16_t* out);
 void world_on_event(int ev, int a, int b);       // BUILT -> place project tiles; NEW_DAY -> seasonal tiles
 int  world_area(void);
 int  hero_activity(void);                        // GQ_ACT_*
+void hero_status_text(char* buf, int cap);       // "GOING TO EAT", "QUEST: CAVE", "TALK TO BRAM"... (status band)
 int  hero_away_progress(int* place_txt);         // chunk 0 stopgap: 0..255 while off screen, -1 otherwise
 int  world_actor_count(void);
 

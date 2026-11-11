@@ -1,6 +1,6 @@
 // Soak skeleton (design 13.1): runs the whole game for a few simulated days and prints the
 // daily ledger. The integration pass extends it to 30 days and the full invariant list.
-// Checked here every simulated second: presence, wallet cap. Every simulated hour: save round trip.
+// Checked here every simulated second: presence, wallet cap. Every simulated hour: status text.
 #include "gq_test.h"
 #include "../lib/gamecore/src/gq_mod.h"
 
@@ -19,21 +19,13 @@ int main(int argc, char** argv) {
       sec++;
       CHECK(gc_query(GQ_Q_HERO_PRESENCE) != 0);
       CHECK(gc_query(GQ_Q_COINS) <= gc_query(GQ_Q_COIN_CAP));
-      if (sec % 3600 == 1800) {   // half past, so that a restore never coincides with midnight
-        // save invariant: export, import into a fresh game, export again: same except seq and crc
-        uint8_t a[GC_SAVE_BYTES], b[GC_SAVE_BYTES];
-        int32_t minute = gc_query(GQ_Q_MINUTE);
-        CHECK(gc_save_export(a, GC_SAVE_BYTES) == GC_SAVE_BYTES);
-        gc_init(GC_SCENE_VILLAGE, 99, 0);
-        gqt::feed_clock();
-        CHECK(gc_save_import(a, GC_SAVE_BYTES) == 1);
-        CHECK(gc_save_export(b, GC_SAVE_BYTES) == GC_SAVE_BYTES);
-        CHECK(gc_query(GQ_Q_MINUTE) == minute || gc_query(GQ_Q_MINUTE) == (minute + 1) % 1440);
-        CHECK(a[36] == b[36] && a[37] == b[37]);   // same day
-        for (int i = 16; i < GC_SAVE_BYTES; i++) {
-          if (i >= 38 && i < 40) continue;   // minute may differ by the clock minute that just ticked
-          CHECK(a[i] == b[i]);
-        }
+      if (sec % 3600 == 1800) {
+        // status band text: 1..19 characters of upper case words, digits and ": "
+        char st[24];
+        hero_status_text(st, 24);
+        size_t n = std::strlen(st);
+        CHECK(n >= 1 && n <= 19);
+        for (size_t i = 0; i < n; i++) CHECK((st[i] >= 'A' && st[i] <= 'Z') || st[i] == ' ' || st[i] == ':' || st[i] == '\'');
         hour_marks++;
       }
       int32_t d = gc_query(GQ_Q_DAY);

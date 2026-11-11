@@ -47,7 +47,13 @@ static void tv_start(int area, int x, int y) {
 }
 
 // 0 busy, 1 arrived, -1 failed
+static int tv_step_raw(Actor* h, uint32_t dt);
 static int tv_step(Actor* h, uint32_t dt) {
+  int r = tv_step_raw(h, dt);
+  if (r) T.on = 0;                                    // the status band says "GOING TO ..." only while walking
+  return r;
+}
+static int tv_step_raw(Actor* h, uint32_t dt) {
   T.ms += (int32_t)dt;
   if (T.ms > 70000) return -1;
   if (world_transition_busy()) return 0;
@@ -1131,4 +1137,45 @@ void hero_force_activity(int gq_act) {
   h->dir = DIR_DOWN;
   s_fight_area = 0xFF;
   begin(h, gq_act);
+}
+
+// Plain-words state of the hero for the status band (at most 19 characters + NUL, upper case).
+// Table per activity: what he is doing, and what he says while still walking to the place.
+static const char* const ST_DOING[GQ_ACT_COUNT] = {
+  "IDLE", "STROLLING", "CHOPPING", "FISHING", "FORAGING", "MINING", "GARDENING", "SELLING", "SHOPPING",
+  "EATING", "RESTING", "CHATTING", "GIVING A GIFT", "QUEST", "FIGHTING", "PETTING THE CAT", "SLEEPING",
+};
+static const char* const ST_GOING[GQ_ACT_COUNT] = {
+  "IDLE", "STROLLING", "GOING TO CHOP", "GOING FISHING", "GOING FORAGING", "GOING MINING", "GOING TO GARDEN",
+  "GOING TO SELL", "GOING SHOPPING", "GOING TO EAT", "GOING TO REST", "GOING TO CHAT", "GOING TO GIVE",
+  "ON AN ERRAND", "GOING TO FIGHT", "GOING TO THE CAT", "GOING TO BED",
+};
+static const char* const ST_AREA[GQ_AREA_COUNT] = {"VILLAGE", "FOREST", "SHORE", "CAVE", "RUINS", "HOME", "SHOP", "TAVERN"};
+
+static void st_cat(char* buf, int cap, const char* a, const char* b) {
+  int n = 0;
+  for (int i = 0; a[i] && n < cap - 1; i++) buf[n++] = a[i];
+  for (int i = 0; b && b[i] && n < cap - 1; i++) buf[n++] = b[i];
+  buf[n] = 0;
+}
+
+void hero_status_text(char* buf, int cap) {
+  const Actor* h = &A[A_HERO];
+  int a = h->act, act = hero_activity();
+  if (cap < 2) return;
+  if (a == ACT_HOME) { str_copy(buf, "GOING HOME", cap); return; }
+  if (a == ACT_FEST) { str_copy(buf, "AT THE FESTIVAL", cap); return; }
+  if (a == ACT_NONE) { str_copy(buf, "RESTING", cap); return; }
+  if (act == GQ_ACT_QUEST) {
+    int area = h->phase >= 10 ? (int)s_need.area : (h->phase <= 2 ? (int)GQ_AREA_FOREST : (int)GQ_AREA_VILLAGE);
+    st_cat(buf, cap, "QUEST: ", ST_AREA[area & 7]);
+    return;
+  }
+  if (act == GQ_ACT_FIGHT && s_fight_quest) {
+    st_cat(buf, cap, "QUEST: ", ST_AREA[(s_fight_area < GQ_AREA_COUNT ? (int)s_fight_area : (int)GQ_AREA_CAVE) & 7]);
+    return;
+  }
+  if (act == GQ_ACT_CHAT && s_force_npc) { st_cat(buf, cap, "TALK TO ", gq_npc_name(s_force_npc)); return; }
+  if (act <= 0 || act >= GQ_ACT_COUNT) { str_copy(buf, "IDLE", cap); return; }
+  str_copy(buf, T.on ? ST_GOING[act] : ST_DOING[act], cap);
 }

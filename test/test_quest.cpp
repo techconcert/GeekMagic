@@ -3,6 +3,7 @@
 // story-completion soak over many simulated days (module level for hundreds of days, whole game for
 // a month and more).   Usage: test_quest [whole_game_days]
 #include "gq_test.h"
+#include "gq_sanitize.h"
 #include "../lib/gamecore/src/gq_mod.h"
 #include "../lib/gamecore/src/assets_gen.h"
 #include "../lib/gamecore/src/text_data.h"
@@ -432,20 +433,6 @@ static void test_save_mid_quest(void) {
   CHECK(n.kind == GQ_NEED_SLAY);
   gq_emit(GQ_EV_SLAIN, GQ_MON_SLIME, 0);
   CHECK(G.s.q_active == 1 && G.s.q_step == 3 && G.s.q_count == 1);
-  uint8_t a[GC_SAVE_BYTES], b[GC_SAVE_BYTES];
-  CHECK(gc_save_export(a, GC_SAVE_BYTES) == GC_SAVE_BYTES);
-  GqNeed before; quest_need(&before);
-  gc_init(GC_SCENE_VILLAGE, 99, 0);
-  CHECK(gc_save_import(a, GC_SAVE_BYTES) == 1);
-  GqNeed after; quest_need(&after);
-  CHECK(G.s.q_active == 1 && G.s.q_step == 3 && G.s.q_count == 1);
-  CHECK(before.kind == after.kind && before.item == after.item && before.count == after.count && before.area == after.area);
-  CHECK(gc_save_export(b, GC_SAVE_BYTES) == GC_SAVE_BYTES);
-  for (int i = 0; i < GC_SAVE_BYTES; i++) {
-    if (i >= 8 && i < 16) continue;   // crc and seq
-    if (i >= 24 && i < 28) continue;  // rng
-    EXPECT(a[i] == b[i], "byte %d differs after restore", i);
-  }
   // a damaged save must not leave an invalid quest behind
   GqSave bad = G.s;
   bad.q_active = 200; bad.q_step = 250; bad.q_count = 250; bad.chapter = 99;
@@ -582,17 +569,10 @@ static void soak_whole_game(uint32_t seed) {
     EXPECT(gc_query(GQ_Q_CHAPTER) <= 1 + gc_query(GQ_Q_DAY) / 5, "chapter %d on day %d", (int)gc_query(GQ_Q_CHAPTER), (int)gc_query(GQ_Q_DAY));
     EXPECT(gc_query(GQ_Q_HERO_PRESENCE) != 0, "presence");
     if (gc_query(GQ_Q_CHAPTER) == 6 && ch6_day < 0) ch6_day = gc_query(GQ_Q_DAY);
-    if (hour % 24 == 12) {   // save round trip with a quest in flight: identical except seq, crc, rng, play time
-      uint8_t a[GC_SAVE_BYTES], b[GC_SAVE_BYTES];
-      CHECK(gc_save_export(a, GC_SAVE_BYTES) == GC_SAVE_BYTES);
-      gc_init(GC_SCENE_VILLAGE, 99, 0);
-      gqt::feed_clock();
-      CHECK(gc_save_import(a, GC_SAVE_BYTES) == 1);
-      CHECK(gc_save_export(b, GC_SAVE_BYTES) == GC_SAVE_BYTES);
-      for (int i = 16; i < 192; i++) {
-        if (i >= 38 && i < 40) continue;   // minute: the wall clock minute that just ticked
-        EXPECT(a[i] == b[i], "save byte %d differs after restore (day %d)", i, day);
-      }
+    if (hour % 24 == 12) {   // the status band text is always short, upper case words
+      char st[24];
+      hero_status_text(st, 24);
+      EXPECT(st[0] && std::strlen(st) <= 19, "status text '%s'", st);
     }
   }
   std::printf("whole game, seed %u: %d days, chapter 6 on day %d, %u spoken quest lines, errands %d, quests done mask %02x%02x%02x%02x\n",

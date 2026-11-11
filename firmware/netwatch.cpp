@@ -5,18 +5,20 @@
 #include "netfsm.h"
 
 #include <ESP8266WiFi.h>
+#if GQ_MDNS
 #include <ESP8266mDNS.h>
+#endif
 #include <time.h>
 #include <stdlib.h>
 #include <string.h>
 #include <user_interface.h>
 
-// Approval switches. All default OFF (design 12.2 A2 and A3).
+// Approval switches (design 12.2): A2 automatic restarts is approved (default ON, platformio.ini says so too); A3 stays off.
 //   -DGQ_NET_NO_SLEEP          WiFi modem sleep off (about 0.25 W more power)
 //   -DGQ_AUTO_RESTART=1        NA_RESTART really restarts (otherwise safety::requestRestart only logs it)
 // RECOVERY-CHANGE (chunk1): GQ_NET_PLANNED_RESTART is replaced by GQ_AUTO_RESTART, decided in safety.cpp
 #ifndef GQ_AUTO_RESTART
-#define GQ_AUTO_RESTART 0
+#define GQ_AUTO_RESTART 1
 #endif
 
 namespace netwatch {
@@ -146,11 +148,13 @@ static void doActions(uint8_t a) {
   }
   if (a & NA_AP_ON) { safety::startAP(); evAdd(EV_AP_ON, 0); }
   if (a & NA_AP_OFF) { safety::stopAP(); evAdd(EV_AP_OFF, 0); }
+#if GQ_MDNS
   if (a & NA_MDNS_RESTART) {
     MDNS.end();
     MDNS.begin("geekquest");
     MDNS.addService("http", "tcp", 80);
   }
+#endif
   if (a & NA_SNTP_KICK) {
     const char* tz = getenv("TZ");   // safety.cpp's configTime() set it
     configTime(tz && *tz ? tz : "UTC0", "pool.ntp.org", "time.google.com");

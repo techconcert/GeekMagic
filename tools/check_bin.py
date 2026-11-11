@@ -1,18 +1,19 @@
 """Recovery safety checks for every GeekQuest .bin.
 
-    python tools/check_bin.py dist/SDP_GeekQuest_test_xxx.bin [more.bin ...] [--flash-save 0|1] [--require-elf]
+    python tools/check_bin.py dist/SDP_GeekQuest_test_xxx.bin [more.bin ...] [--require-elf]
 
 A .bin only passes if, once flashed, the clock can still be re-flashed over
 WiFi (to a newer build OR back to the stock firmware):
   1. ESP8266 image header: magic 0xE9, DIO, 4MB flash (same as stock).
   2. Small enough that the ESP8266 updater can hold the running firmware and
      the next one in the 1 MB code area, in every direction we care about.
-  3. Our own update page, rescue hotspot, safe mode, backup and WiFi routes
-     are linked in, and the update marker occurs exactly once.
+  3. Our own update page, rescue hotspot, safe mode and WiFi routes, the recovery revision tag and the
+     read-only save-sector probe line are linked in, and the update marker occurs exactly once.
   4. Built with the stock flash layout (_FS_start, _FS_end, _EEPROM_start), when the ELF is known.
   5. No symbol that could touch stock's files or settings (EEPROM, LittleFS, SPIFFS, HTTP updater ...).
   6. RAM (.data + .bss) within the baseline plus 8 KB (once RAM_BASELINE is filled in).
-  7. GQJ1 (flash journal) present only in builds made with GQ_FLASH_SAVE=1.
+  7. No flash journal (GQJ1): R2 has no game saving and never writes flash. In the quest build the display-test
+     scene (GQ_TEST_SCENE, env:test only) must not be linked in.
   8. File name starts with "SDP" (the stock updater rejects anything else).
 
 The ELF (same name, .elf, next to the .bin) is read with the toolchain's nm and size
@@ -56,13 +57,17 @@ REQUIRED_STRINGS = [
     (b"GEEKQUEST-%02X%02X", "rescue hotspot"),
     (b"GQ-RECOVERY-REV", "recovery revision tag"),
     (b"/safemode", "safe mode route"),
-    (b"/backup", "backup route"),
+    (b"Save sector 0x3FA000", "read-only save-sector probe"),
     (b"/wifi", "WiFi setup route"),
 ]
 
 FORBIDDEN_SYMBOLS = re.compile(
     r"EEPROMClass|LittleFS|SPIFFS|spiffs_|ESP8266HTTPUpdate|ArduinoOTA|HTTPClient|(?<![a-z])lfs_"
 )
+# Code of the display-test scene (lib/gamecore/src/gamecore.cpp, only compiled with -DGQ_TEST_SCENE=1 in env:test).
+# The quest build must not contain it. Static C++ names appear mangled (_ZL<len><name>..., _ZZL<len><name>... for
+# local statics); the compiler often inlines the functions, so their tables are what remains.
+TEST_SCENE_SYMBOLS = re.compile(r"^_ZZ?L\d+(?:test_render|test_tick|test_init|build_test_map|draw_test_top|draw_test_bottom|WAYPOINTS)")
 
 
 def roundup(n):
@@ -131,12 +136,11 @@ def count(data, needle):
     return data.count(needle)
 
 
-def check(path, fs_start=None, elf=None, flash_save=None, require_elf=False):
+def check(path, fs_start=None, elf=None, require_elf=False):
     """True when the image is safe to flash.
 
     fs_start    legacy: the _FS_start value (kept so older callers keep working)
     elf         ElfInfo or None
-    flash_save  True for builds made with GQ_FLASH_SAVE=1; None = guess from the file name ("_save_")
     """
     ok = True
 
@@ -148,9 +152,8 @@ def check(path, fs_start=None, elf=None, flash_save=None, require_elf=False):
     data = open(path, "rb").read()
     size = len(data)
     name = os.path.basename(path)
-    if flash_save is None:
-        flash_save = "_save_" in name
-    print(f"Checking {name} ({size} bytes, flash saving {'ON' if flash_save else 'off'})")
+    is_quest = "_quest" in name
+    print(f"Checking {name} ({size} bytes)")
 
     if size < 16 or data[0] != 0xE9:
         fail("first byte is not 0xE9 (not an ESP8266 image)")
@@ -175,14 +178,9 @@ def check(path, fs_start=None, elf=None, flash_save=None, require_elf=False):
     if n > 1:
         fail(f"{MARKER.decode()} occurs {n} times, it must occur exactly once")
 
-    # flash journal: only in builds that were made with GQ_FLASH_SAVE=1
-    if flash_save:
-        if b"GQJ1" not in data:
-            fail("flash-saving build without the flash journal (GQJ1)")
-        if b"Save sector" not in data:
-            fail("flash-saving build without the 'Save sector' probe line")
-    elif b"GQJ1" in data:
-        fail("GQJ1 (flash journal) found in a build made without GQ_FLASH_SAVE")
+    # R2 has no game saving: the flash journal must be gone everywhere (it was the only flash writer)
+    if b"GQJ1" in data:
+        fail("GQJ1 (flash journal) found: R2 must not contain any flash saving code")
 
     # ELF based rules
     addrs = dict(elf.addrs) if elf else {}
@@ -198,8 +196,6 @@ def check(path, fs_start=None, elf=None, flash_save=None, require_elf=False):
         for sym, want in LINKER_SYMBOLS.items():
             have = addrs.get(sym)
             if have is None:
-                if sym == "_EEPROM_start" and not flash_save:
-                    continue   # the linker only keeps it when something references it (flash saving)
                 if elf is not None or sym == "_FS_start":
                     msg = f"{sym} not found in the ELF"
                     if require_elf:
@@ -214,6 +210,10 @@ def check(path, fs_start=None, elf=None, flash_save=None, require_elf=False):
             bad = sorted({s for s in elf.symbols if FORBIDDEN_SYMBOLS.search(s)})
             if bad:
                 fail("forbidden symbols linked in: " + ", ".join(bad[:8]) + (" ..." if len(bad) > 8 else ""))
+        if elf is not None and is_quest and elf.symbols:
+            ts = sorted({s for s in elf.symbols if TEST_SCENE_SYMBOLS.match(s)})
+            if ts:
+                fail("display-test scene code linked into the quest build: " + ", ".join(ts[:6]))
         if elf is not None and elf.ram is not None:
             if RAM_BASELINE is None:
                 print(f"  RAM .data+.bss: {elf.ram} bytes (RAM_BASELINE not set yet: not enforced)")
@@ -239,15 +239,11 @@ def check(path, fs_start=None, elf=None, flash_save=None, require_elf=False):
 
 def main(argv):
     paths = []
-    flash_save = None
     require_elf = False
     i = 0
     while i < len(argv):
         a = argv[i]
-        if a == "--flash-save":
-            i += 1
-            flash_save = argv[i] not in ("0", "", "false")
-        elif a == "--require-elf":
+        if a == "--require-elf":
             require_elf = True
         else:
             paths.append(a)
@@ -258,7 +254,7 @@ def main(argv):
     for p in paths:
         elf_path = os.path.splitext(p)[0] + ".elf"
         elf = read_elf_info(elf_path) if os.path.exists(elf_path) else None
-        results.append(check(p, elf=elf, flash_save=flash_save, require_elf=require_elf))
+        results.append(check(p, elf=elf, require_elf=require_elf))
     return 0 if all(results) else 1
 
 

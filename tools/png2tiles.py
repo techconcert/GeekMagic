@@ -62,7 +62,14 @@ def main():
         "#pragma once",
         '#include "platform.h"',
         "",
-        "static const uint16_t GC_PALETTE[16] GC_ROM_ATTR = {",
+        "// Every table is DEFINED once: gamecore.cpp defines GC_ASSETS_DEFINE before including this file.",
+        "// All other files only see the extern declarations (one copy in the firmware, not one per .cpp).",
+        "// The section attribute (PROGMEM) belongs to the definitions only.",
+        "extern const uint16_t GC_PALETTE[16];",
+    ]
+    defs = [
+        "#ifdef GC_ASSETS_DEFINE",
+        "const uint16_t GC_PALETTE[16] GC_ROM_ATTR = {",
         "  " + ",".join(f"0x{rgb565(rgb):04x}" for _, _, rgb in PALETTE),
         "};",
         "",
@@ -79,22 +86,25 @@ def main():
         out.append(f"// {fname}: {cols}x{rows} cells, {len(uniq)} distinct")
         out.append(f"#define GC_{cname}_COUNT {len(cells)}")
         out.append(f"#define GC_{cname}_COLS {cols}")
-        out.append(f"static const uint8_t GC_{cname}_DATA[{len(uniq)}][128] GC_ROM_ATTR = {{")
-        for i, c in enumerate(uniq):
-            out.append(f" {{ // distinct {i}")
-            out.append(c_bytes(c))
-            out.append(" },")
-        out.append("};")
-        out.append(f"static const uint8_t GC_{cname}_MAP[{len(cells)}] GC_ROM_ATTR = {{")
-        out.append(c_bytes(bytes(index)))
-        out.append("};")
+        out.append(f"extern const uint8_t GC_{cname}_DATA[{len(uniq)}][128];")
+        out.append(f"extern const uint8_t GC_{cname}_MAP[{len(cells)}];")
         out.append(f"#define GC_{cname}(id) (GC_{cname}_DATA[GC_RD8(&GC_{cname}_MAP[(id)])])")
-        out.append("")
+        defs.append(f"const uint8_t GC_{cname}_DATA[{len(uniq)}][128] GC_ROM_ATTR = {{")
+        for i, c in enumerate(uniq):
+            defs.append(f" {{ // distinct {i}")
+            defs.append(c_bytes(c))
+            defs.append(" },")
+        defs.append("};")
+        defs.append(f"const uint8_t GC_{cname}_MAP[{len(cells)}] GC_ROM_ATTR = {{")
+        defs.append(c_bytes(bytes(index)))
+        defs.append("};")
+        defs.append("")
 
     n = LAST - FIRST + 1
     out.append(f"#define GC_FONT_FIRST {FIRST}")
     out.append(f"#define GC_FONT_LAST {LAST}")
-    out.append(f"static const uint8_t GC_FONT[{n}][7] GC_ROM_ATTR = {{")
+    out.append(f"extern const uint8_t GC_FONT[{n}][7];")
+    defs.append(f"const uint8_t GC_FONT[{n}][7] GC_ROM_ATTR = {{")
     for code in range(FIRST, LAST + 1):
         ch = chr(code)
         rows = GLYPHS.get(ch, GLYPHS["?"] if ch != " " else GLYPHS[" "])
@@ -107,9 +117,12 @@ def main():
                     v |= 0x10 >> i
             vals.append(v)
         label = ch if ch not in "\\" else "backslash"
-        out.append("  {" + ",".join(f"0x{v:02x}" for v in vals) + f"}}, // '{label}'")
-    out.append("};")
+        defs.append("  {" + ",".join(f"0x{v:02x}" for v in vals) + f"}}, // '{label}'")
+    defs.append("};")
+    defs.append("#endif  // GC_ASSETS_DEFINE")
+    defs.append("")
     out.append("")
+    out.extend(defs)
 
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w") as f:

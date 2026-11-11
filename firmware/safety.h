@@ -4,6 +4,10 @@
 #pragma once
 #include <Arduino.h>
 
+#ifndef GQ_MDNS
+#define GQ_MDNS 0   // 1 = answer geekquest.local (about 19 KB of code); the clock shows its IP address either way
+#endif
+
 namespace safety {
 
 // Call FIRST in setup(), before touching the display or the game.
@@ -45,29 +49,22 @@ void stopAP();
 // Wall clock from NTP. Returns false until synced.
 bool localTime(int& hour, int& minute);
 
-// ---- RECOVERY-CHANGE (chunk1): restarts, quarantine, persistence hooks (design 8.3, 8.6, 8.7)
+// ---- RECOVERY-CHANGE (chunk1): restarts (design 8.3, 8.6, 8.7)
 enum RestartReason : uint8_t {
-  RR_NONE, RR_USER, RR_UPDATE, RR_WIFI, RR_HEAP, RR_MAINT, RR_SAFEMODE, RR_FACTORY,
+  RR_NONE, RR_USER, RR_UPDATE, RR_WIFI, RR_HEAP, RR_MAINT, RR_SAFEMODE, RR_UNUSED7,   // 7: was "factory reset" (numbers stay stable)
   RR_CRASH,   // logged at boot after an unplanned reset
   RR_POWER    // logged at boot after a power-on
 };
 // Carried out from safety::loop() as soon as it is allowed. User-caused reasons (USER, UPDATE,
-// SAFEMODE, FACTORY) are allowed at once. WIFI, HEAP and MAINT are automatic: they only restart
-// when the build has GQ_AUTO_RESTART=1 and autoRestartAllowed() is true; otherwise they are only logged.
+// SAFEMODE) are allowed at once. WIFI, HEAP and MAINT are automatic: they only restart
+// when the build has GQ_AUTO_RESTART=1 (approved in R2) and autoRestartAllowed() is true (never during an
+// upload); otherwise they are only logged.
 void requestRestart(RestartReason why);
-// Called just before a planned restart (main.cpp registers persist::beforeRestart).
-void onBeforeRestart(void (*fn)());
 // uptime >= 30 min, not in the golden window, no AP client, not updating, not safe mode.
 bool autoRestartAllowed();
-// The saved game is not loaded for this boot (crash loop with a restored save).
-bool saveQuarantined();
 // Writes only the RTC stage word (cheap; used every frame for 9, 10 and 11).
 void tickMarker(uint8_t stage);
 
-// persist.cpp reports that a game save was loaded this boot (quarantine rule 8.3).
-void noteGameRestored();
-// The user chose "try again" or "discard" (or restored a backup): the quarantine ends.
-void clearQuarantine();
 // Time zone: validated (design 7.3). Returns false and changes nothing when invalid.
 bool setTimeZone(const char* tz);
 void setDepth(int d);

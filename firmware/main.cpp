@@ -7,8 +7,8 @@
 #include "st7789.h"
 #include "version.h"
 #include "gamecore.h"
-// RECOVERY-CHANGE (chunk1): persistence (design 9) and the game's query keys (public, design 10.3)
-#include "persist.h"
+// RECOVERY-CHANGE (R2): settings in RTC memory (no game saving) and the game's query keys (public, design 10.3)
+#include "prefs.h"
 #include "gq_types.h"
 
 #ifndef GQ_SCENE
@@ -18,8 +18,7 @@
 alignas(4) static uint16_t s_strip[GC_STRIP_PIXELS];   // one 240x16 strip, 7.5 KB
 static bool s_display = false;
 static uint32_t s_lastTick = 0, s_fpsT = 0, s_frames = 0, s_lastStatus = 0;
-// RECOVERY-CHANGE (chunk1): approximate clock after a restart without NTP, and loop timing for the status page
-static uint32_t s_approxEpoch = 0, s_approxBase = 0;
+// RECOVERY-CHANGE (chunk1): loop timing for the status page
 static uint32_t s_loopMax = 0, s_loopMaxT = 0, s_loopMaxShown = 0;
 static uint16_t s_fps10 = 0;
 
@@ -37,7 +36,7 @@ static void updateStatus() {
     snprintf(buf, sizeof(buf), "PASS %s", safety::apPassword());
     gc_set_status(2, buf);
   } else {
-    gc_set_status(1, "GEEKQUEST.LOCAL");
+    gc_set_status(1, "");
     gc_set_status(2, "");
   }
   snprintf(buf, sizeof(buf), "FW %s", GQ_VERSION);
@@ -46,7 +45,7 @@ static void updateStatus() {
   // RECOVERY-CHANGE (chunk1): gc_set_net exists since chunk 0 (the old GQ_HAVE_SET_NET guard never fired)
   gc_set_net(safety::staConnected() ? GC_NET_ONLINE : (safety::apActive() ? GC_NET_AP_ONLY : GC_NET_OFFLINE));
 
-  // RECOVERY-CHANGE (chunk1): date and clock quality (design 5.1, 7.3)
+  // date (design 5.1, 7.3)
   int h, m;
   if (safety::localTime(h, m)) {
     time_t now = time(nullptr);
@@ -55,13 +54,6 @@ static void updateStatus() {
     gc_set_date(t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_wday, (uint32_t)now);
     gc_set_clock_quality(0);
     gc_set_clock(h, m, 1);
-  } else if (s_approxEpoch) {                      // restored from the RTC save: grey digits until the first sync
-    time_t a = (time_t)(s_approxEpoch + (millis() - s_approxBase) / 1000);
-    struct tm t;
-    localtime_r(&a, &t);
-    gc_set_date(t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_wday, (uint32_t)a);
-    gc_set_clock_quality(1);
-    gc_set_clock(t.tm_hour, t.tm_min, 1);
   } else {
     gc_set_clock(0, 0, 0);
   }
@@ -71,8 +63,7 @@ void setup() {
   Serial.begin(115200);
   safety::begin();                       // 1. WiFi, rescue hotspot, update page
   safety::stage(1);
-  persist::begin(safety::safeMode());    // RECOVERY-CHANGE (chunk1): settings (RTC, else flash, else defaults); never writes
-  safety::onBeforeRestart(persist::beforeRestart);
+  prefs::begin();                        // RECOVERY-CHANGE (R2): settings from RTC memory, else defaults; the game is never saved
   safety::setAsleepFn(heroAsleep);
 
   if (!safety::noDisplay()) {            // 2. display (skipped after 6 crashes)
@@ -83,18 +74,7 @@ void setup() {
   }
   if (safety::safeMode()) gc_init(GC_SCENE_INFO, 1, 1);   // 3. game, unless in safe mode
   else gc_init(GQ_SCENE, ESP.random(), 1);
-  // RECOVERY-CHANGE (chunk1): restore the saved game (design 9.4 load order). Rejected data changes nothing.
-  if (!safety::safeMode()) {
-    uint8_t save[GC_SAVE_BYTES];
-    if (persist::loadGame(save) && gc_save_import(save, GC_SAVE_BYTES) == 1 && persist::loadSource() == 1) {
-      uint32_t ep = (uint32_t)save[16] | ((uint32_t)save[17] << 8) | ((uint32_t)save[18] << 16) | ((uint32_t)save[19] << 24);
-      if (ep > 1600000000UL) {             // restart (RTC copy): saved time plus the 5 s a restart takes
-        s_approxEpoch = ep + 5;
-        s_approxBase = millis();
-      }
-    }
-  }
-  persist::apply(s_display);             // RECOVERY-CHANGE (chunk1): brightness, card period, night dimming
+  prefs::apply(s_display, !safety::safeMode());   // brightness, card period, night dimming
   gc_set_depth(safety::depth());
   safety::stage(4);
   updateStatus();
@@ -114,7 +94,6 @@ void loop() {
     }
     prevEntry = e;
   }
-  persist::loop();                       // RECOVERY-CHANGE (chunk1): RTC save every 60 s when the game changed
   if (!s_display || safety::updating()) { delay(2); return; }
 
   gc_set_depth(safety::depth());
