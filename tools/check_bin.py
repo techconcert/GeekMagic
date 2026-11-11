@@ -198,6 +198,8 @@ def check(path, fs_start=None, elf=None, flash_save=None, require_elf=False):
         for sym, want in LINKER_SYMBOLS.items():
             have = addrs.get(sym)
             if have is None:
+                if sym == "_EEPROM_start" and not flash_save:
+                    continue   # the linker only keeps it when something references it (flash saving)
                 if elf is not None or sym == "_FS_start":
                     msg = f"{sym} not found in the ELF"
                     if require_elf:

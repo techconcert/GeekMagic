@@ -108,7 +108,7 @@ for sym, bad in (("_FS_start", 0x40300000 + 0x1000), ("_FS_end", 0x405FB000), ("
     a[sym] = bad
     expect(f"{sym} moved", False, verdict(make(), elf=elf(addrs=a)))
 a = dict(check_bin.LINKER_SYMBOLS)
-del a["_EEPROM_start"]
+del a["_FS_end"]
 expect("linker symbol missing and ELF required", False, verdict(make(), elf=elf(addrs=a), require_elf=True))
 expect("legacy fs_start argument still works", True, verdict(make(), fs_start=check_bin.FS_START_4M3M))
 expect("legacy fs_start wrong", False, verdict(make(), fs_start=0x40400000))

@@ -190,7 +190,13 @@ class Lint:
             if not re.search(needle, t):
                 self.add("L6", rel, 1, "platformio.ini must contain " + needle.replace("\\", ""))
         # L8: approvals are off by default; turning one on is a deliberate edit of this rule as well
-        for flag in ("GQ_FLASH_SAVE", "GQ_AUTO_RESTART", "GQ_STRICT_UPLOAD"):
+        # flash saving is set per environment: =0 in test/quest, =1 only in the never-published quest_save
+        if not re.search(r"-DGQ_FLASH_SAVE=0\b", t):
+            self.add("L8", rel, 1, "build_flags must contain -DGQ_FLASH_SAVE=0 (approval not given yet; see design 12.2)")
+        for sec in re.split(r"(?m)^(?=\[)", t):
+            if "GQ_FLASH_SAVE=1" in sec and not sec.startswith("[env:quest_save]"):
+                self.add("L8", rel, 1, "GQ_FLASH_SAVE=1 is only allowed in [env:quest_save] (CI-only, never published)")
+        for flag in ("GQ_AUTO_RESTART", "GQ_STRICT_UPLOAD"):
             if not re.search(r"^\s*-D" + flag + r"=0\s*$", t, re.M):
                 self.add("L8", rel, 1, "[env] build_flags must contain -D%s=0 (approval not given yet; see design 12.2)" % flag)
 
