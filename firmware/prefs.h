@@ -13,7 +13,10 @@ void begin();
 const GqSettings& settings();
 // Validates and applies a new record (false and no change when invalid) and stores it in RTC.
 bool set(const GqSettings& s);
-void reset();
+// Each page resets only its own settings: the main page the game settings (info card interval, quiet at night), /config the
+// screen settings (brightness, colour depth, time zone, maintenance restart). The other page keeps its values.
+void resetGame();
+void resetScreen();
 // Pushes brightness, card period and night dimming to the display and the game. `display` / `game` are false when skipped.
 void apply(bool display, bool game);
 

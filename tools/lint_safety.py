@@ -1,4 +1,4 @@
-"""Recovery-contract lint (design 13.3 gate G4, rules L1..L7 of section 13.3 plus L8, L9; R2 adds the L2 flash rule; R3 adds L10..L13).
+"""Recovery-contract lint (design 13.3 gate G4, rules L1..L7 of section 13.3 plus L8, L9; R2 adds the L2 flash rule; R3 adds L10..L13; R5 adds L14 and lets store.cpp write flash).
 
     python tools/lint_safety.py              # lint the repository
     python tools/lint_safety.py --root DIR   # lint another tree (used by the self-test)
@@ -117,21 +117,27 @@ class Lint:
     def l2_l3(self):
         # R2: the clock never writes or erases flash by itself (the Updater does it for firmware uploads). There is no
         # file left that may do so, and flashRead (the read-only probe of sector 0x3FA000) is allowed in prefs.cpp only.
+        # R5 (owner-approved 2026-11-11): store.cpp alone may erase and write flash, and only its three sectors (rule L14).
         flash_only = r"\b(?:EEPROM|LittleFS|SPIFFS|flashEraseSector|flashWrite|spi_flash_\w*)\b"
+        fs_only = r"\b(?:EEPROM|LittleFS|SPIFFS)\b"
         wifi_only = r"WiFi\s*\.\s*mode\s*\(|\benableAP\b|\benableSTA\b|\bsoftAP\w*"
         persist_total = 0
         for rel in files(self.root, "firmware"):
             base = os.path.basename(rel)
             t = strip_code(read(self.root, rel))
-            self.scan("L2", rel, t, flash_only, "flash write/erase or file-system access (R2 never writes flash): %s")
+            if base == "store.cpp":
+                self.scan("L2", rel, t, fs_only, "file-system or EEPROM access: %s")
+                self.scan("L2", rel, t, r"\bspi_flash_\w*\b", "raw SDK flash call (use ESP.flashRead/Write/EraseSector): %s")
+            else:
+                self.scan("L2", rel, t, flash_only, "flash write/erase or file-system access (only firmware/store.cpp may write flash): %s")
             # R3: still no flash backend (addendum item 3): no cfgflash.*, no GQ_CONFIG_FLASH, and the Updater class only in safety.cpp
             if base.startswith("cfgflash"):
                 self.add("L2", rel, 1, "no flash backend in R3: cfgflash.* must not exist")
             self.scan("L2", rel, t, r"\bGQ_CONFIG_FLASH\b", "GQ_CONFIG_FLASH: R3 has no flash backend")
             if base != "safety.cpp":
                 self.scan("L2", rel, t, r"\bUpdate\s*\.\s*(?:begin|write|end|writeStream)\b|\bUpdater\b", "Updater (firmware flash writer) outside safety.cpp: %s")
-            if base != "prefs.cpp":
-                self.scan("L2", rel, t, r"\bflashRead\b", "flash access outside prefs.cpp: %s")
+            if base not in ("prefs.cpp", "store.cpp"):
+                self.scan("L2", rel, t, r"\bflashRead\b", "flash access outside prefs.cpp and store.cpp: %s")
             if base != "safety.cpp":
                 self.scan("L2", rel, t, r"\bESP\s*\.\s*(?:restart|reset)\b", "ESP.restart/reset outside safety.cpp")
                 self.scan("L2", rel, t, r"WiFi\s*\.\s*persistent\s*\(\s*true\s*\)", "WiFi.persistent(true) outside safety.cpp")
@@ -148,6 +154,27 @@ class Lint:
                         self.add("L3", rel, line_of(t, m.start()), "delay() above 500 ms")
         if os.path.isdir(os.path.join(self.root, "firmware")) and persist_total != 1:
             self.add("L2", "firmware/safety.cpp", 1, "WiFi.persistent(true) must occur exactly once in safety.cpp (found %d)" % persist_total)
+
+    # ---------------------------------------------------------------- L14 (R5)
+    # store.cpp writes flash. It may only touch 0x80000..0x82FFF: the only hex constants it may contain are 0x80000 (base)
+    # and 0x7D000 (largest image allowed), it must refuse to run in safe mode and during an upload.
+    def l14(self):
+        rel = "firmware/store.cpp"
+        if not os.path.exists(os.path.join(self.root, rel)):
+            return
+        t = strip_code(read(self.root, rel))
+        for m in re.finditer(r"\b0[xX][0-9A-Fa-f]+[uUlL]*", t):
+            v = int(re.sub(r"[uUlL]+$", "", m.group(0)), 16)
+            if v not in (0x80000, 0x7D000):
+                self.add("L14", rel, line_of(t, m.start()), "hex constant %s: store.cpp may only use 0x80000 (base) and 0x7D000 (image limit)" % m.group(0))
+        if not re.search(r"\bBASE\s*=\s*0[xX]80000", t):
+            self.add("L14", rel, 1, "store.cpp must define BASE = 0x80000")
+        if not re.search(r"s_on\s*=\s*!\s*safeMode\b", t):
+            self.add("L14", rel, 1, "store.cpp must switch itself off in safe mode (s_on = !safeMode && ...)")
+        if not re.search(r"safety\s*::\s*updating\s*\(", t):
+            self.add("L14", rel, 1, "store.cpp must not write while a firmware upload runs (safety::updating())")
+        if not re.search(r"MAX_IMAGE", t):
+            self.add("L14", rel, 1, "store.cpp must refuse to run when the image is larger than the limit (MAX_IMAGE)")
 
     # ---------------------------------------------------------------- L4
     def l4(self):
@@ -261,7 +288,7 @@ class Lint:
                     self.scan("L11", rel, t, r"\bdelay\s*\(|\bString\b|\bWiFiClient\b", "wxnet.cpp must not use delay(), String or WiFiClient")
 
     def run(self):
-        self.l1(); self.l2_l3(); self.l4(); self.l5_l7(); self.l6_l8(); self.l9(); self.l10_l13()
+        self.l1(); self.l2_l3(); self.l4(); self.l5_l7(); self.l6_l8(); self.l9(); self.l10_l13(); self.l14()
         return self.hits
 
 

@@ -29,6 +29,8 @@
 #include "config.h"
 #include "wxnet.h"
 #include "nightmode.h"
+#include "store.h"
+#include "gq_night.h"
 
 #include <coredecls.h>   // settimeofday_cb
 
@@ -53,7 +55,7 @@ static const uint32_t AP_GRACE_MS = 10UL * 60 * 1000;  // AP stays up 10 min aft
 // RECOVERY-CHANGE (chunk1): CRASHES_FOR_* moved to lib/gqsafe/src/bootlogic.h
 // RECOVERY-CHANGE (chunk1): revision 2 = chunk 1 (design 8.10 rule 6); 3 = R2 (no game saving, automatic restarts on)
 // RECOVERY-CHANGE (R3-0F): revision 5 = R3 plumbing (web() accessor, webout.h, weather strike words, boot kind, spare sector probe)
-static const uint32_t GQ_RECOVERY_REV = 7;
+static const uint32_t GQ_RECOVERY_REV = 8;
 // RECOVERY-CHANGE (chunk1): timers of the restart gates
 static const uint32_t SLOW_STABLE_MS = 6UL * 3600 * 1000;   // `slow` counter cleared after 6 h of uptime
 static const uint32_t AUTO_MIN_UPTIME_MS = 30UL * 60 * 1000;
@@ -288,6 +290,7 @@ void plannedRestart(bool intoSafeMode) {
 }
 
 bool coldBoot() { return s_cold; }
+unsigned crashes() { return (unsigned)s_crashes; }
 
 // RECOVERY-CHANGE (R3-0F): R3 accessors
 ESP8266WebServer& web() { return server; }
@@ -449,11 +452,12 @@ static void sendReasons(Out& o, bool json) {
 // RECOVERY-CHANGE (R3-0F): the k-th non-empty status line of the R3 modules (nightmode, weather, settings), or false.
 // Stubs return empty lines, so the status page and /info are unchanged until the modules are filled in.
 static bool r3Line(uint8_t k, char* buf, size_t n) {
-  for (uint8_t i = 0; i < 3; i++) {
+  for (uint8_t i = 0; i < 4; i++) {
     buf[0] = 0;
     if (i == 0) nightmode::statusLine(buf, n);
     else if (i == 1) wxnet::statusLine(buf, n);
-    else config::statusLine(buf, n);
+    else if (i == 2) config::statusLine(buf, n);
+    else store::statusLine(buf, n);
     if (buf[0] && k-- == 0) return true;
   }
   buf[0] = 0;
@@ -540,20 +544,15 @@ static void handleRoot() {
     }
   }
 
-  // ---- settings
+  // ---- game settings (R5: brightness, colour depth, time zone, maintenance restart and the display test moved to /config)
   const GqSettings& st = prefs::settings();
-  o.f(PSTR("<div class='box'><form method='post' action='/settings' style='display:block'><input type='hidden' name='f' value='1'>Brightness (0-100)<input name='bl' value='%d'>"), lcd::brightness());
-  o.f(PSTR("Colour depth (0-100, higher = deeper colours, fixes washed-out look)<input name='depth' value='%d'>Time zone (POSIX TZ, e.g. &lt;-03&gt;3 for UTC-3)<input name='tz' value='"), s_depth);
-  o.esc(s_tz);
-  o.f(PSTR("'>Info card every (minutes, 0 = off)<input name='card' value='%u'>"), (unsigned)st.card_period);
-  o.f(PSTR("<label><input type='checkbox' name='maint' value='1'%s> Weekly maintenance restart (about 04:00)</label><br>"
-           "<label><input type='checkbox' name='night' value='1'%s> Quiet at night</label><br>"),
-      (st.flags & GQS_FLAG_MAINT) ? " checked" : "", (st.flags & GQS_FLAG_NIGHT) ? " checked" : "");
-  o.p(PSTR("<button>Apply</button> <small>Kept in the clock's memory (survives restarts and updates, not unplugging).</small></form>"
-           "<form method='post' action='/reset_settings' onsubmit=\"return confirm('Put brightness, colour depth, time zone and card period back to defaults?')\"><button>Reset settings</button></form></div>"));
-  o.p(PSTR("<div class='box'>Display test (only if colours look wrong; not saved):<br><br>"
-           "<a href='/display?madctl=0'>RGB order</a> <a href='/display?madctl=8'>BGR order</a> "
-           "<a href='/display?inv=1'>Inversion on</a> <a href='/display?inv=0'>Inversion off</a></div>"
+  o.f(PSTR("<div class='box'><form method='post' action='/settings' style='display:block'><b>Game settings</b><input type='hidden' name='f' value='1'>"
+           "Info card every (minutes, 0 = off)<input name='card' value='%u'>"), (unsigned)st.card_period);
+  o.f(PSTR("<label><input type='checkbox' name='night' value='1'%s> Quiet at night (hides info cards from %02u:%02u - %02u:%02u)</label>"),
+      (st.flags & GQS_FLAG_NIGHT) ? " checked" : "", (unsigned)(GC_NIGHT_START_MIN / 60), (unsigned)(GC_NIGHT_START_MIN % 60),
+      (unsigned)(GC_NIGHT_END_MIN / 60), (unsigned)(GC_NIGHT_END_MIN % 60));
+  o.p(PSTR("<button>Apply</button> <small>Saved permanently: survives power cuts and updates.</small></form>"
+           "<form method='post' action='/reset_settings' onsubmit=\"return confirm('Put the game settings (info card interval, quiet at night) back to defaults?')\"><button>Reset game settings</button></form></div>"
            "<form method='post' action='/reboot'><button>Restart</button></form> "
            "<form method='post' action='/safemode'><button>Restart in safe mode</button></form>"));
   o.f(PSTR("<p><small>GQ-RECOVERY-REV %u</small></p>"), (unsigned)GQ_RECOVERY_REV);
@@ -742,22 +741,10 @@ static int argInt(const char* name, int lo, int hi, int dflt) {
 
 static void handleSettings() {
   touch();
-  // RECOVERY-CHANGE (chunk1): the whole form is validated first; an invalid value changes nothing.
+  // R5: this form only holds the game settings (info card interval, quiet at night); the screen settings are on /config.
   GqSettings s = prefs::settings();
-  s.brightness = (uint8_t)argInt("bl", 0, 100, s.brightness);
-  s.depth = (uint8_t)argInt("depth", 0, 100, s.depth);
   s.card_period = (uint8_t)argInt("card", 0, GQS_CARD_PERIOD_MAX, s.card_period);
-  if (server.hasArg("f"))
-    s.flags = (uint8_t)((server.hasArg("maint") ? GQS_FLAG_MAINT : 0) | (server.hasArg("night") ? GQS_FLAG_NIGHT : 0));
-  if (server.hasArg("tz") && server.arg("tz").length()) {
-    String tz = server.arg("tz");
-    if (!gqs_tz_valid(tz.c_str())) {
-      server.send(400, F("text/plain"), F("Time zone rejected: use 3 to 34 characters from A-Z a-z 0-9 < > + - : , . / (for example <-03>3). Nothing was changed."));
-      return;
-    }
-    strncpy(s.tz, tz.c_str(), sizeof(s.tz) - 1);
-    s.tz[sizeof(s.tz) - 1] = 0;
-  }
+  if (server.hasArg("f")) s.flags = (uint8_t)((s.flags & ~GQS_FLAG_NIGHT) | (server.hasArg("night") ? GQS_FLAG_NIGHT : 0));
   gqs_seal(&s);
   prefs::set(s);
   redirectHome();
@@ -772,7 +759,7 @@ static void handleDisplay() {
   redirectHome();
 }
 
-static void handleResetSettings() { touch(); prefs::reset(); redirectHome(); }
+static void handleResetSettings() { touch(); prefs::resetGame(); redirectHome(); }
 
 static void handleNotFound() {
   netwatch::noteHttp();   // RECOVERY-CHANGE (0B)

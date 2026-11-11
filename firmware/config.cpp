@@ -13,6 +13,8 @@
 #include "wxnet.h"
 #include "nightmode.h"
 #include "cfgstore.h"
+#include "store.h"
+#include "prefs.h"
 #include "config_page.h"
 
 namespace config {
@@ -41,6 +43,13 @@ static int rtcWrite(void*, const uint8_t* buf, uint32_t n) {
 }
 static const CfgBackend s_rtc = { "rtc", rtcRead, rtcWrite, nullptr };
 
+// The record saved in flash (store.cpp), read once at boot after a power cut.
+static int memRead(void* ctx, uint8_t* buf, uint32_t n) {
+  if (n != sizeof(GqConf) || !ctx) return 0;
+  memcpy(buf, ctx, n);
+  return 1;
+}
+
 // ---- messages, one per GQC_E_* code (flash)
 static const char M_OK[] PROGMEM = "Saved.";
 static const char M_LAT[] PROGMEM = "Latitude must be a number from -90 to 90, for example 38.72. Nothing was changed.";
@@ -54,6 +63,10 @@ static const char M_NOCOORD[] PROGMEM = "Live weather needs a latitude and longi
 static const char M_LOWMEM[] PROGMEM = "The clock is low on memory. Try again in a minute.";
 static const char M_BUSY[] PROGMEM = "A firmware update is running. Try again afterwards.";
 static const char M_STORE[] PROGMEM = "The settings could not be stored in the clock's memory.";
+static const char M_BL[] PROGMEM = "Brightness must be a whole number from 0 to 100. Nothing was changed.";
+static const char M_DEPTH[] PROGMEM = "Colour depth must be a whole number from 0 to 100. Nothing was changed.";
+static const char M_TZ[] PROGMEM = "Time zone rule: 3 to 34 characters from A-Z a-z 0-9 < > + - : , . / only. Nothing was changed.";
+static const char M_RESET[] PROGMEM = "These settings are back to defaults.";
 static const char M_CMD[] PROGMEM = "Unknown command.";
 static const char M_WAKE_SENT[] PROGMEM = "Wake now sent.";
 static const char M_SLEEP_SENT[] PROGMEM = "Sleep now sent.";
@@ -136,7 +149,7 @@ static void handleJson() {
   o.f(PSTR("{\"weather\":%u,\"lat\":\"%s\",\"lon\":\"%s\",\"place\":\""), (c.flags & GQC_F_WEATHER) ? 1u : 0u, lat, lon);
   putJson(o, place);
   o.f(PSTR("\",\"unit\":\"%c\",\"sleep\":%u,\"sleep_time\":\"%s\",\"wake_time\":\"%s\",\"seq\":%u,\"defaults\":%s,\"storage\":\"%s\""),
-      (c.flags & GQC_F_FAHRENHEIT) ? 'F' : 'C', (c.flags & GQC_F_SLEEP) ? 1u : 0u, st, wt, (unsigned)c.seq, s_default ? "true" : "false", s_rtc.name);
+      (c.flags & GQC_F_FAHRENHEIT) ? 'F' : 'C', (c.flags & GQC_F_SLEEP) ? 1u : 0u, st, wt, (unsigned)c.seq, s_default ? "true" : "false", store::active() ? "flash" : s_rtc.name);
   int wx = 0, t10 = 0, fl = 0;
   const bool have = (c.flags & GQC_F_WEATHER) && wxnet::reading(&wx, &t10, &fl);
   const unsigned strikes = safety::wxStrikes();
@@ -148,15 +161,42 @@ static void handleJson() {
   wxnet::statusLine(status, sizeof(status));
   status[sizeof(status) - 1] = 0;
   putJson(o, status);
+  o.f(PSTR("\",\"bl\":%u,\"depth\":%u,\"mt\":%u,\"tz\":\""), (unsigned)prefs::settings().brightness, (unsigned)prefs::settings().depth, (prefs::settings().flags & GQS_FLAG_MAINT) ? 1u : 0u);
+  putJson(o, prefs::settings().tz);
   o.p(PSTR("\"}"));
   o.flush();
   safety::endChunked();
+}
+
+// whole number 0..100, nothing else
+static bool pct(const String& v, uint8_t* out) {
+  if (v.length() < 1 || v.length() > 3) return false;
+  unsigned n = 0;
+  for (unsigned i = 0; i < v.length(); i++) { if (v[i] < '0' || v[i] > '9') return false; n = n * 10 + (unsigned)(v[i] - '0'); }
+  if (n > 100) return false;
+  *out = (uint8_t)n;
+  return true;
 }
 
 // ---- POST /config
 static void handleSave() {
   if (!admit()) return;
   ESP8266WebServer& s = srv();
+  GqSettings ns = prefs::settings();             // screen part: validated first, applied only after the conf is accepted
+  bool screen = false;
+  if (s.hasArg("bl")) { if (!pct(s.arg("bl"), &ns.brightness)) { reply(400, M_BL); return; } screen = true; }
+  if (s.hasArg("depth")) { if (!pct(s.arg("depth"), &ns.depth)) { reply(400, M_DEPTH); return; } screen = true; }
+  if (s.hasArg("tz")) {
+    const String& t = s.arg("tz");
+    if (t.length() > GQS_TZ_MAX) { reply(400, M_TZ); return; }
+    char tmp[sizeof(ns.tz)];
+    memset(tmp, 0, sizeof(tmp));
+    memcpy(tmp, t.c_str(), t.length());
+    if (!gqs_tz_valid(tmp)) { reply(400, M_TZ); return; }
+    memcpy(ns.tz, tmp, sizeof(ns.tz));
+    screen = true;
+  }
+  if (s.hasArg("f")) { ns.flags = (uint8_t)((ns.flags & ~GQS_FLAG_MAINT) | (s.hasArg("mt") ? GQS_FLAG_MAINT : 0)); screen = true; }
   const bool wholeForm = s.hasArg("f");          // the hidden marker: unchecked boxes then mean "off", not "keep"
   GqcInput in;
   in.weather = wholeForm ? (s.hasArg("wx") ? 1 : 0) : -1;
@@ -180,7 +220,21 @@ static void handleSave() {
     s_default = false;
     if ((n.flags & GQC_F_WEATHER) && (!(old.flags & GQC_F_WEATHER) || old.lat_c != n.lat_c || old.lon_c != n.lon_c)) wxnet::kick();
   }
+  if (screen && !prefs::set(ns)) { reply(400, M_TZ); return; }
   if (s.hasArg("j")) reply(200, M_OK); else redirectConfig();
+}
+
+// ---- POST /config/reset: this page's settings only (weather, sleep, screen); the game settings keep their values
+static void handleReset() {
+  if (!admit()) return;
+  GqConf n;
+  gqc_defaults(&n);
+  n.seq = (uint16_t)(s_conf.seq + 1);
+  if (!cfg_save(&s_rtc, &n)) { reply(500, M_STORE); return; }
+  s_conf = n;
+  s_default = false;
+  prefs::resetScreen();
+  reply(200, M_RESET);
 }
 
 // ---- POST /config/night, POST /config/retry
@@ -203,12 +257,18 @@ static void handleRetry() {
 // ---- public
 void begin(bool safeMode) {
   if (cfg_load(&s_rtc, &s_conf)) s_default = false;
-  else s_default = true;
+  else {
+    const GqConf* sv = store::savedConf();
+    const CfgBackend fb = { "flash", memRead, nullptr, (void*)sv };
+    if (sv && cfg_load(&fb, &s_conf)) { s_default = false; cfg_save(&s_rtc, &s_conf); }   // power cut: back into RTC too
+    else s_default = true;
+  }
   if (safeMode) return;                          // safe mode registers no route
   ESP8266WebServer& s = srv();
   s.on("/config", HTTP_GET, handlePage);
   s.on("/config", HTTP_POST, handleSave);
   s.on("/config.json", HTTP_GET, handleJson);
+  s.on("/config/reset", HTTP_POST, handleReset);
   s.on("/config/night", HTTP_POST, handleNight);
   s.on("/config/retry", HTTP_POST, handleRetry);
 }
@@ -221,7 +281,7 @@ void statusLine(char* buf, size_t n) {
   if (!n) return;
   buf[0] = 0;
   if (s_default) return;
-  snprintf_P(buf, n, PSTR("Clock settings saved (change %u), kept in memory until unplugged."), (unsigned)s_conf.seq);
+  snprintf_P(buf, n, PSTR("Clock settings saved (change %u)."), (unsigned)s_conf.seq);
 }
 
 }  // namespace config

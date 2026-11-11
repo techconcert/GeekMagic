@@ -7,7 +7,12 @@
 // ---- game.cpp (chunk 0)
 void gq_emit(int ev, int a, int b);              // never re-entrant: events raised inside a handler are queued (8 deep) and
                                                  // delivered after the current one; a full queue drops the event and counts it
-void gq_touch(void);                             // G.serial++ : call after any change of the game state
+void gq_touch(void);                             // G.serial++ : call after any change worth saving
+uint32_t gq_crc32(const uint8_t* p, int n);
+
+// ---- save.cpp (R5)
+int  gq_save_validate(const uint8_t* buf, int len);      // GC_SAVE_*
+void gq_save_sanitize(GqSave* s);                        // clamps every field to its range
 
 // ---- calendar.cpp, weather.cpp (chunk 6)
 void cal_init(void);                             // from G.s

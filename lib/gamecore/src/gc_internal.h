@@ -42,6 +42,8 @@ extern char     g_status[4][32];
 extern int      g_hour, g_min, g_clock_valid;
 
 uint32_t gc_rnd();
+uint32_t gc_rng_get(void);
+void gc_rng_set(uint32_t state);
 int gc_scene_id(void);
 void mark_rows(int y, int h);
 void str_copy(char* dst, const char* src, int cap);

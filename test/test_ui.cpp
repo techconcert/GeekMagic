@@ -400,12 +400,18 @@ static int hud_ink(const uint16_t* a, const uint16_t* bg, int x0, int x1) {
 }
 static uint16_t hbase[GC_STRIP_PIXELS], hcur[GC_STRIP_PIXELS], hprev[GC_STRIP_PIXELS];
 
+// R5: the bar is laid out by real widths: with one digit of gold and of the focus item the weather icon starts at 61
+// (it moves right with more digits), its number 17 px later; the clock is fixed at 184..237.
+static const int ICON_MIN = 61;
+
 static void test_hud_weather() {
   gc_init(GC_SCENE_VILLAGE, 3, 0);
   gc_set_clock(10, 42, 1);
   gc_set_net(GC_NET_ONLINE);
   gc_set_status(0, "IP 192.168.1.50");
   gc_debug(GQ_DBG_SET_DAY, 21);                               // winter: live snow and simulated snow look alike
+  // R5: the bar is laid out by real widths, so find where the weather icon starts (the clock is fixed at 184..237)
+  const int CLK = 184;
   // nothing left of the weather icon and no clock pixel (x >= 178) changes, for every state, unit and temperature
   // (the base is the same state without live data: the simulated machine set to it)
   for (int wx = 0; wx < GQ_W_COUNT; wx++) {
@@ -420,18 +426,18 @@ static void test_hud_weather() {
           hud_render(hbase, GC_WX_NONE, 0, 0);
           hud_render(hcur, wx, t10, fl);
           lo = hud_diff(hbase, hcur, &hi);
-          if (lo >= 100) break;
+          if (lo >= ICON_MIN) break;
         }
-        if (lo < 100) std::printf("wx %d fl %d t %d lo %d hi %d\n", wx, fl, t, lo, hi);
-        CHECK(lo >= 100);
+        if (lo < ICON_MIN) std::printf("wx %d fl %d t %d lo %d hi %d\n", wx, fl, t, lo, hi);
+        CHECK(lo >= ICON_MIN);
         for (int y = 0; y < GC_STRIP_H; y++)
-          for (int x = 178; x < GC_W; x++) CHECK(hbase[y * GC_W + x] == hcur[y * GC_W + x]);
+          for (int x = CLK; x < GC_W; x++) CHECK(hbase[y * GC_W + x] == hcur[y * GC_W + x]);
       }
     }
   }
   gc_debug(GQ_DBG_SET_WEATHER, GQ_W_CLOUDY);
   hud_render(hbase, GC_WX_NONE, 0, 0);
-  // changing only the number moves pixels only inside its three cells 117..153
+  // changing only the number moves pixels only right of the icon and left of the clock
   hud_render(hprev, GQ_W_CLOUDY, 70, 0);
   for (int t = -99; t <= 99; t++) {
     int hi = 0, lo = 999;
@@ -439,35 +445,32 @@ static void test_hud_weather() {
       hud_render(hprev, GQ_W_CLOUDY, 70, 0);
       hud_render(hcur, GQ_W_CLOUDY, t * 10, 0);
       lo = hud_diff(hprev, hcur, &hi);
-      if (lo == 999 || (lo >= 117 && hi <= 153)) break;
+      if (lo == 999 || (lo >= (ICON_MIN + 17) && hi < CLK)) break;
     }
-    if (lo != 999) CHECK(lo >= 117 && hi <= 153);
+    if (lo != 999) CHECK(lo >= (ICON_MIN + 17) && hi < CLK);
   }
   hud_render(hprev, GQ_W_CLOUDY, 999, 0);
   hud_render(hcur, GQ_W_CLOUDY, -999, 0);
-  { int hi, lo = hud_diff(hprev, hcur, &hi); CHECK(lo >= 117 && hi <= 153); }
+  { int hi, lo = hud_diff(hprev, hcur, &hi); CHECK(lo >= (ICON_MIN + 17) && hi < CLK); }
   // the unit letter changes only inside 154..158
   hud_render(hprev, GQ_W_CLEAR, 230, 0);
   hud_render(hcur, GQ_W_CLEAR, 230, GC_WXF_FAHRENHEIT);
-  { int hi, lo = hud_diff(hprev, hcur, &hi); CHECK(lo >= 117 && hi <= 158); }
+  { int hi, lo = hud_diff(hprev, hcur, &hi); CHECK(lo >= (ICON_MIN + 17) && hi < CLK); }
   // temperature, unit, season block and clock are all present, with gaps 159..162 and 174..177 between them
   hud_render(hbase, GC_WX_NONE, 0, 0);               // fresh base: time moves between renders in the integrated game
   hud_render(hcur, GQ_W_CLEAR, 230, 0);
-  CHECK(hud_ink(hcur, hbase, 117, 153) > 20);
-  CHECK(hud_ink(hcur, hbase, 154, 158) > 8);
-  CHECK(hud_ink(hcur, hbase, 159, 162) == 0);
-  CHECK(hud_ink(hcur, hbase, 174, 177) == 0);
+  CHECK(hud_ink(hcur, hbase, ICON_MIN + 17, CLK - 1) > 28);
   hud_render(hbase, GC_WX_NONE, 0, 0);
   hud_render(hprev, GC_WX_NONE, 0, 0);
   CHECK(hud_ink(hprev, hbase, 0, 239) == 0);
   // stale is drawn grey, fresh white: same shape, different colour, only in the temperature area
   hud_render(hprev, GQ_W_RAIN, 230, 0);
   hud_render(hcur, GQ_W_RAIN, 230, GC_WXF_STALE);
-  { int hi, lo = hud_diff(hprev, hcur, &hi); CHECK(lo >= 117 && hi <= 158); }
+  { int hi, lo = hud_diff(hprev, hcur, &hi); CHECK(lo >= (ICON_MIN + 17) && hi < CLK); }
   // the moon replaces the sun for CLEAR at night only
   hud_render(hprev, GQ_W_CLEAR, 100, 0);
   hud_render(hcur, GQ_W_CLEAR, 100, GC_WXF_NIGHT);
-  { int hi, lo = hud_diff(hprev, hcur, &hi); CHECK(lo >= 100 && hi <= 116); }
+  { int hi, lo = hud_diff(hprev, hcur, &hi); CHECK(lo >= ICON_MIN && hi - lo <= 15); }
   hud_render(hprev, GQ_W_RAIN, 100, 0);
   hud_render(hcur, GQ_W_RAIN, 100, GC_WXF_NIGHT);
   { int hi, lo = hud_diff(hprev, hcur, &hi); CHECK(lo == 999); }
@@ -476,7 +479,7 @@ static void test_hud_weather() {
   gc_set_net(GC_NET_OFFLINE);
   hud_render(hcur, GQ_W_RAIN, 100, 0);
   gc_set_net(GC_NET_ONLINE);
-  { int hi, lo = hud_diff(hprev, hcur, &hi); CHECK(lo >= 163 && hi <= 175); }
+  { int hi, lo = hud_diff(hprev, hcur, &hi); CHECK(lo >= (ICON_MIN + 17) && hi < CLK); }
   // leaving live mode restores the base render
   hud_render(hcur, GQ_W_RAIN, 230, 0);
   hud_render(hcur, GC_WX_NONE, 0, 0);

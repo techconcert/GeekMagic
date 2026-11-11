@@ -27,8 +27,8 @@ static uint8_t  s_spot[SP_COUNT];
 static struct { uint8_t tile, area, spot; } s_exit[6];
 static uint8_t  s_nexit;
 static uint32_t s_rows_water, s_rows_fire, s_rows_bell;
-static uint8_t  s_water_frame, s_fire_frame, s_bell_frame;
-static uint32_t s_water_acc, s_fire_acc, s_bell_acc, s_dyn_acc, s_idle_acc;
+static uint8_t  s_water_frame, s_fire_frame, s_bell_frame, s_zzz_frame;
+static uint32_t s_water_acc, s_fire_acc, s_bell_acc, s_dyn_acc, s_idle_acc, s_zzz_acc;
 static int32_t  s_bell_ms;
 static uint8_t  s_resync, s_rebuild;
 
@@ -572,6 +572,15 @@ static int actor_ops(int i, Op* ops) {
       ops[n++] = body;
     }
   }
+  if (a->kind == AK_HERO && a->visible && a->pose == POSE_BED) {
+    // R5: "Zzz Zzz Zzz" drifting up from the pillow while the hero sleeps with the screen on (3 copies, each starts again below the head)
+    for (int k = 0; k < 3; k++) {
+      int f = (s_zzz_frame + k * 2) % 6;
+      Op z = {(int16_t)(a->x + 4 + k * 9), (int16_t)(a->y - 6 - f * 3), SH_ITEMS, (uint8_t)I_ZZZ, 0, (uint8_t)i, 1, 0};
+      ops[n++] = z;
+    }
+    return n;
+  }
   if (a->emote != I_NONE) {
     Op e = {a->ex >= 0 ? a->ex : a->x, a->ex >= 0 ? a->ey : (int16_t)(a->y - 16), SH_ITEMS, (uint8_t)a->emote, 0, (uint8_t)i, 1, 0};
     ops[n++] = e;
@@ -695,6 +704,11 @@ void world_tick(uint32_t dt) {
     if (s_bell_acc >= 300) { s_bell_acc = 0; s_bell_frame ^= 1; g_dirty |= s_rows_bell; }
     if (s_bell_ms <= 0 && s_bell_frame) { s_bell_frame = 0; g_dirty |= s_rows_bell; }
   }
+  // R5: the hero's Zzz while he lies in bed
+  if (A[A_HERO].visible && A[A_HERO].pose == POSE_BED) {
+    s_zzz_acc += dt;
+    if (s_zzz_acc >= 450) { s_zzz_acc -= 450; s_zzz_frame = (uint8_t)((s_zzz_frame + 1) % 6); s_idle_acc = 0; }
+  } else s_zzz_acc = 0;
   // objects that grow back (once a second)
   s_dyn_acc += dt;
   if (s_dyn_acc >= 1000) { s_dyn_acc -= 1000; if (s_dyn_acc > 1000) s_dyn_acc = 0; dyn_tick(); }

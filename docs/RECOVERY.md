@@ -29,7 +29,7 @@ Things that are **safe** to do at any time: opening any page, **Restart**, **Res
 
 ## Your game and settings: what survives what
 
-R2 removed the game save/backup/restore system. The game is **not saved anywhere**: after any restart, crash, update or power cut it starts again on day 1. Only the settings (time zone, brightness, colour depth, info card period, weekly restart, quiet at night) are kept.
+**R5 saves settings and the game to flash** (approved by the owner on 2026-11-11): only sectors 0x80000-0x82FFF, by `firmware/store.cpp`, as a ring log of CRC-checked 320-byte records (36 slots, newest valid record wins, a torn write is ignored). It never runs in safe mode, during a firmware update, or if the image is above 0x7D000 bytes; writes are rate limited and verified; after 2 or more crashes the saved game is kept aside and not loaded. If anything looks wrong, flash the previous build or stock firmware: both ignore the area. The status page lines "Saved to flash" and "Loaded from flash" show what happened. Before R5 the game was not saved at all.
 
 | Event | Settings | Game |
 |---|---|---|
@@ -51,7 +51,7 @@ The status page also shows read-only lines about two flash areas: **Stock data s
 2. You have the last known-good `.bin` and the original `SDPro_V1.0.6` file on the phone or computer you are installing from.
 3. The clock has steady power and will not be moved for two minutes.
 4. On the clock's status page: **Room for update** is larger than the new file, and the crash counter is 0.
-5. Nothing to back up: the game is not saved. (Note the settings if you changed them.)
+5. Nothing to back up: settings and game are saved in the clock (R5 and later) and survive the update.
 6. Choose the file on the update page, check the CRC32 and the message under it, press **Upload and install**. Wait for **Installed N bytes**. Do not unplug for 60 seconds.
 7. If the page does not come back within 2 minutes: unplug the clock and plug it in once, join `GEEKQUEST-XXXX` within 10 minutes, open `http://192.168.4.1/`.
 

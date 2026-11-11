@@ -46,7 +46,15 @@ void gc_mark_all_dirty(void);
 // Render one 240x16 strip into out[240*16].
 void gc_render_strip(int strip, uint16_t* out);
 
-// Day-1 defaults (same as a first boot). The game is not saved anywhere: every restart starts on day 1.
+#include "gq_night.h"   // GC_NIGHT_START_MIN / GC_NIGHT_END_MIN: the built-in night
+
+// ---- persistence (R5). The core does no I/O; firmware/store.cpp keeps the bytes in flash.
+#define GC_SAVE_BYTES 192
+enum { GC_SAVE_OK = 0, GC_SAVE_ERR_LEN, GC_SAVE_ERR_MAGIC, GC_SAVE_ERR_VERSION, GC_SAVE_ERR_CRC };
+int      gc_save_export(uint8_t* buf, int cap);        // village scene only. Returns GC_SAVE_BYTES, or 0.
+int      gc_save_import(const uint8_t* buf, int len);  // 1 = accepted, sanitized, applied. 0 = rejected, nothing changed.
+uint32_t gc_save_serial(void);                         // changes whenever the saved state changed
+// Day-1 defaults (same as a first boot).
 void     gc_reset_game(void);
 
 // ---- environment

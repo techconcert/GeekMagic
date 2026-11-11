@@ -5,6 +5,7 @@
 #include "safety.h"
 #include "st7789.h"
 #include "gamecore.h"
+#include "store.h"
 
 // The linker script of the stock 4M3M layout defines these. Only their addresses are used.
 extern "C" uint32_t _FS_end;
@@ -31,8 +32,12 @@ static bool s_display = false, s_game = false;
 void begin() {
   GqSettings r;
   ESP.rtcUserMemoryRead(RTC_SET, (uint32_t*)&r, sizeof(r));
-  if (gqs_check(&r) == 0) s_set = r;
-  else gqs_defaults(&s_set);
+  const GqSettings* sv = store::savedSettings();
+  if (gqs_check(&r) == 0) s_set = r;                                   // restart: RTC memory is current
+  else if (sv && gqs_check(sv) == 0) {                                 // power cut: the saved record
+    s_set = *sv;
+    ESP.rtcUserMemoryWrite(RTC_SET, (uint32_t*)&s_set, sizeof(s_set));
+  } else gqs_defaults(&s_set);
   safety::setTimeZone(s_set.tz);
   safety::setDepth(s_set.depth);
 }
@@ -61,10 +66,22 @@ bool set(const GqSettings& s) {
   return true;
 }
 
-void reset() {
-  GqSettings d;
+void resetGame() {
+  GqSettings d, t = s_set;
   gqs_defaults(&d);
-  set(d);
+  t.card_period = d.card_period;
+  t.flags = (uint8_t)((t.flags & ~GQS_FLAG_NIGHT) | (d.flags & GQS_FLAG_NIGHT));
+  set(t);
+}
+
+void resetScreen() {
+  GqSettings d, t = s_set;
+  gqs_defaults(&d);
+  t.brightness = d.brightness;
+  t.depth = d.depth;
+  memcpy(t.tz, d.tz, sizeof(t.tz));
+  t.flags = (uint8_t)((t.flags & ~GQS_FLAG_MAINT) | (d.flags & GQS_FLAG_MAINT));
+  set(t);
 }
 
 void probeText(char* buf, size_t n) {

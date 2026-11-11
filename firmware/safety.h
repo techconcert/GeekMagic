@@ -72,6 +72,8 @@ bool setTimeZone(const char* tz);
 void setDepth(int d);
 // ms since the last web request (0xFFFFFFFF = never).
 uint32_t msSinceRequest();
+// Unplanned resets in a row before this boot (store.cpp keeps a suspect saved game aside from 2 on).
+unsigned crashes();
 // Power-on (not a restart): RTC contents were not ours.
 bool coldBoot();
 

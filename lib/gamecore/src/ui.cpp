@@ -541,29 +541,33 @@ static void draw_postcard(uint16_t* out, int y0, int progress) {
 static void draw_hud(uint16_t* out, int y0) {
   darken_rect(out, y0, 0, 0, GC_W, 16);
   char buf[12];
-  // coins: at most 3 digits (the wallet cap is 999)
+  // R5: every item sits right after the one before it, so the bar adapts to the real number of digits
+  // (gold up to 999, the focus item up to 255, a temperature of two or three characters).
+  int x = 0;
   blit_sprite(out, y0, 0, 0, GC_ITEMS(I_COIN), 0, 0, g_ui);
   uint32_t coins = G.s.coins > 999 ? 999u : G.s.coins;
   fmt_uint(buf, coins);
   draw_text(out, y0, 17, 1, buf, g_ui[P_YELLOW], 2, 0);
-  // focus item (what the goal or quest needs): at most 2 digits
+  x = 17 + str_len(buf) * 12 + 2;
+  // focus item (what the goal or quest needs)
   int fi = econ_focus_item();
   if (fi < 0 || fi >= GQ_ITEM_COUNT) fi = 0;
-  blit_sprite(out, y0, 56, 0, GC_ITEMS(item_icon(fi)), 0, 0, g_ui);
-  uint32_t cnt = G.s.inv[fi] > 99 ? 99u : G.s.inv[fi];
-  fmt_uint(buf, cnt);
-  draw_text(out, y0, 73, 1, buf, g_ui[P_WHITE], 2, 0);
-  // weather icon, season and day of season
+  blit_sprite(out, y0, x, 0, GC_ITEMS(item_icon(fi)), 0, 0, g_ui);
+  fmt_uint(buf, G.s.inv[fi]);
+  draw_text(out, y0, x + 17, 1, buf, g_ui[P_WHITE], 2, 0);
+  x += 17 + str_len(buf) * 12 + 1;
+  // weather icon, temperature, season and day of season
   int w = cal_weather_shown();
   if (w < 0 || w >= GQ_W_COUNT) w = 0;
   int tv = 0, tf = 0;
   int live = cal_temp(&tv, &tf);
   int icon = 40 + w;
   if (live && w == GQ_W_CLEAR && (G.live_flags & GC_WXF_NIGHT)) icon = 47;   // moon
-  blit_sprite(out, y0, 100, 0, GC_ITEMS(icon), 0, 0, g_ui);
-  int sx = 120;                                     // x of the season block
+  blit_sprite(out, y0, x, 0, GC_ITEMS(icon), 0, 0, g_ui);
+  int sx = x + 20;                                  // x of the season block
   if (live) {
-    // temperature (design R3 2.7): scale 2, right-aligned in three cells 117..152, then the degree mark and the unit
+    // temperature: scale 2, only as wide as it is (two characters usually, three at 100 or above or below -9), then the
+    // degree mark and the unit
     if (tv < -99) tv = -99;
     if (tv > 199) tv = 199;
     char tb[5];
@@ -571,13 +575,15 @@ static void draw_hud(uint16_t* out, int y0) {
     if (tv < 0) { tb[n++] = '-'; tv = -tv; }
     fmt_uint(tb + n, (uint32_t)tv);
     uint16_t tc = (G.live_flags & GC_WXF_STALE) ? g_ui[P_GREY] : g_ui[P_WHITE];
-    draw_text(out, y0, 117 + (3 - str_len(tb)) * 12, 1, tb, tc, 2, 0);
-    fill_rect(out, y0, 154, 1, 3, 1, tc);           // 3x3 hollow degree square
-    fill_rect(out, y0, 154, 3, 3, 1, tc);
-    fill_rect(out, y0, 154, 2, 1, 1, tc);
-    fill_rect(out, y0, 156, 2, 1, 1, tc);
-    draw_text(out, y0, 154, 8, tf ? "F" : "C", tc, 1, 0);
-    sx = 163;
+    const int tx = x + 17;
+    draw_text(out, y0, tx, 1, tb, tc, 2, 0);
+    const int dx = tx + str_len(tb) * 12 + 1;       // 3x3 hollow degree square
+    fill_rect(out, y0, dx, 1, 3, 1, tc);
+    fill_rect(out, y0, dx, 3, 3, 1, tc);
+    fill_rect(out, y0, dx, 2, 1, 1, tc);
+    fill_rect(out, y0, dx + 2, 2, 1, 1, tc);
+    draw_text(out, y0, dx, 8, tf ? "F" : "C", tc, 1, 0);
+    sx = dx + 8;
   }
   int se = cal_season() & 3;
   if (live && G.net == GC_NET_OFFLINE) {
@@ -587,14 +593,19 @@ static void draw_hud(uint16_t* out, int y0) {
     buf[0] = 'D'; buf[1] = (char)('0' + cal_day_of_season() % 10); buf[2] = 0;
     draw_text(out, y0, sx, 8, buf, g_ui[P_GREY], 1, 0);
     // red "!" only while the station link is down
-    if (G.net == GC_NET_OFFLINE) draw_text(out, y0, 150, 1, "!", g_ui[12], 2, 0);
+    if (G.net == GC_NET_OFFLINE) draw_text(out, y0, sx - 12, 1, "!", g_ui[12], 2, 0);
   }
+  // clock HH:MM with a narrow colon (54 px instead of 60), right aligned
   char t[6] = {'-', '-', ':', '-', '-', 0};
   if (g_clock_valid) {
     t[0] = (char)('0' + g_hour / 10); t[1] = (char)('0' + g_hour % 10);
     t[3] = (char)('0' + g_min / 10); t[4] = (char)('0' + g_min % 10);
   }
-  draw_text(out, y0, GC_W - 5 * 12 - 2, 1, t, G.clock_approx ? g_ui[P_GREY] : g_ui[P_WHITE], 2, 0);
+  const int cx = GC_W - 54 - 2;
+  const uint16_t cc = G.clock_approx ? g_ui[P_GREY] : g_ui[P_WHITE];
+  draw_text_n(out, y0, cx, 1, t, 2, cc, 2);
+  draw_text_n(out, y0, cx + 21, 1, t + 2, 1, cc, 2);
+  draw_text_n(out, y0, cx + 30, 1, t + 3, 2, cc, 2);
 }
 
 static void draw_dialogue(uint16_t* out, int y0) {

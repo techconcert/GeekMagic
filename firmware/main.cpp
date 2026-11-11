@@ -14,6 +14,7 @@
 #include "config.h"
 #include "wxnet.h"
 #include "nightmode.h"
+#include "store.h"   // RECOVERY-CHANGE (R5): power-cut saving
 
 #ifndef GQ_SCENE
 #define GQ_SCENE GC_SCENE_TEST
@@ -74,7 +75,8 @@ void setup() {
   Serial.begin(115200);
   safety::begin();                       // 1. WiFi, rescue hotspot, update page
   safety::stage(1);
-  prefs::begin();                        // RECOVERY-CHANGE (R2): settings from RTC memory, else defaults; the game is never saved
+  store::begin(safety::safeMode());      // RECOVERY-CHANGE (R5): newest saved record from flash (read only)
+  prefs::begin();                        // settings from RTC memory, else the saved record, else defaults
   safety::setAsleepFn(heroAsleep);
   config::begin(safety::safeMode());     // RECOVERY-CHANGE (R3-0F): settings record and page; no routes in safe mode
   wxnet::begin(safety::safeMode());      // weather client; never runs in safe mode
@@ -87,6 +89,7 @@ void setup() {
   }
   if (safety::safeMode()) gc_init(GC_SCENE_INFO, 1, 1);   // 3. game, unless in safe mode
   else gc_init(GQ_SCENE, ESP.random(), 1);
+  if (!safety::safeMode()) { const uint8_t* g = store::savedGame(); if (g) gc_save_import(g, GC_SAVE_BYTES); }   // RECOVERY-CHANGE (R5): continue the saved game
   nightmode::begin(safety::safeMode(), s_display);   // RECOVERY-CHANGE (R3-0F): sleep schedule; never in safe mode
   prefs::apply(s_display, !safety::safeMode());   // brightness, card period, night dimming
   gc_set_depth(safety::depth());
@@ -109,6 +112,7 @@ void loop() {
     prevEntry = e;
   }
   config::loop();                        // RECOVERY-CHANGE (R3-0F): R3 modules, each does its work at most once a second
+  store::loop();                         // RECOVERY-CHANGE (R5): flash saves (settings soon after a change, game every 20 minutes)
   wxnet::loop();                         // (the live reading reaches the core through updateStatus())
   nightmode::loop();
   if (!s_display || safety::updating()) { delay(2); return; }

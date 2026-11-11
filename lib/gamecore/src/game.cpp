@@ -119,6 +119,41 @@ void village_render(int s, uint16_t* out) {
   ui_render(s, out);
 }
 
+// --------------------------------------------------------------- persistence
+extern "C" int gc_save_export(uint8_t* buf, int cap) {
+  if (gc_scene_id() != GC_SCENE_VILLAGE || !buf || cap < GQ_SAVE_SIZE) return 0;
+  GqSave tmp = G.s;
+  gq_save_sanitize(&tmp);
+  tmp.seq = G.s.seq + 1;
+  tmp.rng = gc_rng_get();
+  const uint8_t* p = (const uint8_t*)&tmp;
+  for (int i = 0; i < GQ_SAVE_SIZE; i++) buf[i] = p[i];
+  tmp.crc32 = gq_crc32(buf + 12, GQ_SAVE_SIZE - 12);
+  buf[8] = (uint8_t)tmp.crc32; buf[9] = (uint8_t)(tmp.crc32 >> 8);
+  buf[10] = (uint8_t)(tmp.crc32 >> 16); buf[11] = (uint8_t)(tmp.crc32 >> 24);
+  G.s.seq = tmp.seq;
+  return GQ_SAVE_SIZE;
+}
+
+extern "C" int gc_save_import(const uint8_t* buf, int len) {
+  if (gc_scene_id() != GC_SCENE_VILLAGE) return 0;
+  if (gq_save_validate(buf, len) != GC_SAVE_OK) return 0;
+  GqSave tmp;
+  uint8_t* d = (uint8_t*)&tmp;
+  for (int i = 0; i < GQ_SAVE_SIZE; i++) d[i] = buf[i];
+  gq_save_sanitize(&tmp);
+  G.s = tmp;                 // from here on nothing can fail
+  G.presence = GQ_PRES_SPRITE;
+  s_play_ms = 0;
+  s_qh = s_qn = s_busy = 0;
+  init_modules();
+  gc_rng_set(tmp.rng);       // the modules consumed random numbers; resume exactly where the save was
+  gc_mark_all_dirty();
+  return 1;
+}
+
+extern "C" uint32_t gc_save_serial(void) { return G.serial; }
+
 // --------------------------------------------------------------------- reset
 extern "C" void gc_reset_game(void) {
   if (gc_scene_id() != GC_SCENE_VILLAGE) return;

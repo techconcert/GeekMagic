@@ -9,10 +9,10 @@ bottom band shows what the hero is doing right now, the clock's IP address and t
 
 **Download:** every build of the `main` branch is published on the
 [Releases page](https://github.com/techconcert/GeekMagic/releases). Releases are named by number
-(**GeekQuest r4**, r5, ...; the number lives in the `VERSION` file) and the newest is marked
+(GeekQuest r4, **GeekQuest r5**, ...; the number lives in the `VERSION` file) and the newest is marked
 "Latest". Each release has the two firmware files, `preview.html` (the game in your browser)
 and `SHA256SUMS.txt`. The file names also carry the short commit, for example
-`SDP_GeekQuest_quest_r4-1a2b3c4.bin`.
+`SDP_GeekQuest_quest_r5-1a2b3c4.bin`.
 
 ## Hardware
 
@@ -60,10 +60,15 @@ in the Network tile.
   game go dark, the CPU slows down, and the clock keeps the time. At the wake time everything
   comes back by itself with the hero up. **Sleep now** and **Wake now** buttons are there too.
   WiFi, the web pages and the update page stay on while asleep.
-- Brightness, colour depth, time zone and the info-card interval are on the status page.
+- **Location and time zone:** the city search also fills the time zone rule (converted in your
+  browser, no firmware cost); you can still type the rule text by hand.
+- **Screen:** brightness, colour depth, the weekly maintenance restart and the display test.
+- **Save settings** and **Reset these settings** on this page touch only this page's settings.
 
-Settings live in the clock's RTC memory: they survive restarts, crashes and firmware updates, not
-unplugging.
+The status page has a **Game settings** section (info card interval, quiet at night) with its own
+Apply and **Reset game settings** buttons, which touch only those two settings.
+
+**Settings and the game survive a power cut** (R5): see "Saving to flash" below.
 
 ## Recovery and the rescue hotspot
 
@@ -87,11 +92,23 @@ Every build contains, and CI refuses to produce a `.bin` without (`tools/check_b
   flash by itself (only the update page's Updater does), and CI forbids EEPROM, LittleFS and SPIFFS
   code. Flashing `SDPro_V1.0.6_....bin` from the GeekQuest update page brings the original clock
   back.
-- **Nothing is saved to flash yet.** After a power cut the game starts on day 1 and the settings
-  go back to defaults; restarts and updates keep the settings (RTC memory). The status page
-  reports, read only, what flash sectors 0x3FA000 (stock data, never written) and 0x80000 (free,
-  between the image and a staged update) contain. A later release may keep settings and game in
-  0x80000, only after you have seen it blank on your clock and approved.
+- **One flash area, approved by the owner.** Since R5 the clock saves its settings and the game in
+  sectors 0x80000-0x82FFF (three 4 KB sectors, between the running image and a staged update).
+  Nothing else is ever written: not 0x3FA000 (stock data), not 0xFF000, no EEPROM, LittleFS or
+  SPIFFS. CI enforces this (`tools/lint_safety.py` rules L2 and L14). See "Saving to flash".
+
+## Saving to flash
+
+`firmware/store.cpp` keeps a ring log of 320-byte records (settings, weather and sleep settings, game)
+in 36 slots over the three sectors. Each record has a CRC and a sequence number; the newest valid
+one is loaded at boot, so a power cut in the middle of a write can never produce a half-saved state
+(tested with random power cuts, see `test/test_slotlog.cpp`). Writes are rare: settings 5 seconds
+after a change, the game every 20 minutes and at each new game day, at most 6 writes in 10 minutes;
+every write is read back and 3 failures switch saving off. Nothing is written in safe mode, while a
+firmware update runs, or when the image is larger than 0x7D000 bytes. After 2 or more crashes the
+saved game is kept aside, not loaded, so a game that crashes the clock cannot crash it again from
+the save. Updating to a new GeekQuest build keeps everything; flashing the stock firmware does not
+(not needed). The status page shows "Saved to flash ..." or "Loaded from flash ..." lines.
 
 Gates: `tools/lint_safety.py`, `tools/check_bin_selftest.py`, `tools/check_bin.py` on every `.bin`,
 a size report, and `tools/recovery_guard.py` (a `RECOVERY-CHANGE:` commit line and a new

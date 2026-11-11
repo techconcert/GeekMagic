@@ -60,7 +60,7 @@ static int festival_day(void) { return G.s.day % 7 == 6; }
 static int minute_of_day(void) { return G.s.minute > 1439 ? 1439 : G.s.minute; }
 
 int cal_minute(void) { return minute_of_day(); }
-int cal_is_night(void) { return G.s.minute >= 22 * 60 || G.s.minute < 6 * 60; }
+int cal_is_night(void) { return G.s.minute >= GC_NIGHT_START_MIN || G.s.minute < GC_NIGHT_END_MIN; }
 int cal_season(void) { return (G.s.day / 7) % 4; }
 int cal_day_of_season(void) { return G.s.day % 7 + 1; }
 int cal_year(void) { return G.s.day / 28 + 1; }

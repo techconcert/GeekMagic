@@ -36,6 +36,8 @@ uint32_t gc_rnd() {
   return g_rng;
 }
 
+uint32_t gc_rng_get(void) { return g_rng; }
+void gc_rng_set(uint32_t state) { g_rng = state ? state : 0x1234567u; }
 int gc_scene_id(void) { return g_scene; }
 
 void mark_rows(int y, int h) {
