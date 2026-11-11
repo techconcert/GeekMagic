@@ -111,7 +111,7 @@ static int cond_ok(int cond, int arg, int npc) {
 
 static int weight_of(int cond) { return cond == TC_ANY ? 1 : (cond == TC_TIME || cond == TC_SEASON) ? 2 : 4; }
 
-static int sc_cond(int i) { return GC_RD8(&TALK_SCRIPTS[i].cond); }
+static int sc_cond(int i) { return GC_RD8(&TALK_SCRIPTS[i].cond) & ~TS_HERO; }
 static int sc_arg(int i) { return GC_RD8(&TALK_SCRIPTS[i].arg); }
 static int sc_pack(int i) { return GC_RD16(&TALK_SCRIPTS[i].pack); }
 
@@ -154,9 +154,9 @@ static int choose_chat(int npc) {
 
 static void start_script(int idx) {
   int p = sc_pack(idx);
-  s_first = (uint16_t)(p & 0x3FF);
-  s_turns = (uint8_t)(((p >> 10) & 3) + 1);
-  s_hero_opens = (uint8_t)((p >> 12) & 1);
+  s_first = (uint16_t)(p & 0x3FFF);
+  s_turns = (uint8_t)((p >> 14) + 1);
+  s_hero_opens = (GC_RD8(&TALK_SCRIPTS[idx].cond) & TS_HERO) ? 1 : 0;
 }
 
 int talk_begin(int npc) {
@@ -221,34 +221,41 @@ static int put_slot(int code, char* buf, int n, int cap, int npc) {
   }
 }
 
-// Expands line id into buf (at most cap-1 characters, '|' between the two lines of the box). Returns the length.
-static int decode_line(int line, char* buf, int cap, int npc) {
+// Expands the turn that starts at blob offset o into buf (at most cap-1 characters, '|' between the two lines of the box).
+static int decode_at(int o, char* buf, int cap, int npc) {
   if (cap < 1) return 0;
   int n = 0;
-  if (line >= 0 && line < TALK_NLINES) {
-    int o = GC_RD16(&TALK_LOFF[line]);
-    for (int g = 0; g < 96 && o + g < TALK_BLOB_BYTES; g++) {
-      int b = GC_RD8(&TALK_BLOB[o + g]);
-      if (!b) break;
-      if (b >= 0x60) {
-        int d = b - 0x60;
-        if (d >= TALK_DICT_N) continue;
-        int e = GC_RD16(&TALK_DOFF[d + 1]);
-        for (int k = GC_RD16(&TALK_DOFF[d]); k < e; k++) n = put(buf, n, cap, (char)GC_RD8(&TALK_DICT[k]));
-      } else if (b == 1) n = put(buf, n, cap, '|');
-      else if (b < 8) n = put_slot(b, buf, n, cap, npc);
-      else n = put(buf, n, cap, (char)b);
-    }
+  for (int g = 0; g < 96 && o + g < TALK_BLOB_BYTES; g++) {
+    int b = GC_RD8(&TALK_BLOB[o + g]);
+    if (!b) break;
+    if (b >= 0x60) {
+      int d = b - 0x60;
+      if (d >= TALK_DICT_N) continue;
+      int e = GC_RD16(&TALK_DOFF[d + 1]);
+      for (int k = GC_RD16(&TALK_DOFF[d]); k < e; k++) n = put(buf, n, cap, (char)GC_RD8(&TALK_DICT[k]));
+    } else if (b == 1) n = put(buf, n, cap, '|');
+    else if (b < 8) n = put_slot(b, buf, n, cap, npc);
+    else n = put(buf, n, cap, (char)b);
   }
   buf[n] = 0;
   return n;
+}
+
+// Offset of the i-th turn after the one at offset o (turns are consecutive and end with a 0 byte).
+static int skip_turns(int o, int i) {
+  for (; i > 0; i--) {
+    int g = 0;
+    while (g < 96 && o < TALK_BLOB_BYTES && GC_RD8(&TALK_BLOB[o])) { o++; g++; }
+    o++;
+  }
+  return o;
 }
 
 int talk_turn(int i, char* buf, int cap) {
   if (cap < 1) return 0;
   buf[0] = 0;
   if (i < 0 || i >= s_turns) return 0;
-  decode_line(s_first + i, buf, cap, s_npc);
+  decode_at(skip_turns(s_first, i), buf, cap, s_npc);
   return s_hero_opens ? !(i & 1) : (i & 1);
 }
 
@@ -282,7 +289,7 @@ static int say_script(int idx, char* buf, int cap, int npc) {
   if (cap < 1) return 0;
   buf[0] = 0;
   if (idx < 0) return 0;
-  decode_line(sc_pack(idx) & 0x3FF, buf, cap, npc);
+  decode_at(sc_pack(idx) & 0x3FFF, buf, cap, npc);
   return buf[0] != 0;
 }
 
@@ -319,4 +326,4 @@ int talk_dbg_begin(int script, int npc) {
 int talk_dbg_last(void) { return s_last_idx | (s_last_level << 8); }   // script index, level of the search in bits 8..
 void talk_dbg_force(int script) { s_force = (int16_t)script; }   // -1 = normal selection
 int talk_dbg_begins(void) { return s_begins; }
-int talk_dbg_line(int line, char* buf, int cap, int npc) { return decode_line(line, buf, cap, npc); }
+int talk_dbg_line(int line, char* buf, int cap, int npc) { return line < 0 || line >= TALK_NLINES ? (buf[0] = 0) : decode_at(skip_turns(0, line), buf, cap, npc); }   // line = turn number in file order

@@ -20,6 +20,9 @@ int  quest_chat_kind(int* npc);
 void quest_dbg_set_chat(int kind, int npc);
 
 static int g_fail;
+static int COND(int i) { return TALK_SCRIPTS[i].cond & ~TS_HERO; }
+// number of the turn (file order) that starts at blob offset off
+static int line_of_offset(int off) { int n = 0; for (int o = 0; o < off; o++) if (TALK_BLOB[o] == 0) n++; return n; }
 #define EXPECT(cond, ...) do { if (!(cond)) { std::printf("FAIL %s:%d: %s  ", __FILE__, __LINE__, #cond); std::printf(__VA_ARGS__); std::printf("\n"); if (++g_fail > 25) std::exit(1); } } while (0)
 
 static const char* GLYPHS = " !#%'()+,-./0123456789:<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ_";
@@ -128,7 +131,7 @@ static void test_tables(void) {
   EXPECT(TALK_FIRST[12] == TALK_NSCRIPTS, "TALK_FIRST end");
   int lines = 0;
   for (int i = 0; i < TALK_NSCRIPTS; i++) {
-    int cond = TALK_SCRIPTS[i].cond, p = TALK_SCRIPTS[i].pack, turns = ((p >> 10) & 3) + 1, first = p & 0x3FF;
+    int cond = COND(i), p = TALK_SCRIPTS[i].pack, turns = (p >> 14) + 1, first = line_of_offset(p & 0x3FFF);
     int group = 0;
     while (group < 11 && i >= TALK_FIRST[group + 1]) group++;
     EXPECT(cond <= TC_QREPLY, "cond %d", cond);
@@ -254,7 +257,7 @@ static void test_reachability(void) {
     int ranges[2][2] = {{TALK_FIRST[npc - 1], TALK_FIRST[npc]}, {TALK_FIRST[9], TALK_FIRST[10]}};
     for (int part = 0; part < (npc == GQ_NPC_MISO ? 1 : 2); part++)
       for (int idx = ranges[part][0]; idx < ranges[part][1]; idx++) {
-        int cond = TALK_SCRIPTS[idx].cond, arg = TALK_SCRIPTS[idx].arg;
+        int cond = COND(idx), arg = TALK_SCRIPTS[idx].arg;
         if (!apply(cond, arg, npc, live)) {
           if ((cond == TC_TEMP || cond == TC_LIVE) && !live) { skipped++; continue; }
           EXPECT(0, "cannot set up cond %d arg %d for npc %d", cond, arg, npc);
@@ -281,8 +284,8 @@ static void test_selection(void) {
   G.s.weather = GQ_W_RAIN;
   int rain_idx = -1, any_idx = -1;
   for (int i = TALK_FIRST[0]; i < TALK_FIRST[1]; i++) {
-    if (TALK_SCRIPTS[i].cond == TC_WX && TALK_SCRIPTS[i].arg == GQ_W_RAIN) rain_idx = i;
-    if (TALK_SCRIPTS[i].cond == TC_ANY && any_idx < 0) any_idx = i;
+    if (COND(i) == TC_WX && TALK_SCRIPTS[i].arg == GQ_W_RAIN) rain_idx = i;
+    if (COND(i) == TC_ANY && any_idx < 0) any_idx = i;
   }
   if (rain_idx >= 0 && any_idx >= 0) {
     int rain = 0, any = 0, other_weather = 0;
@@ -292,7 +295,7 @@ static void test_selection(void) {
       int idx = talk_dbg_last() & 0xFF;
       if (idx == rain_idx) rain++;
       if (idx == any_idx) any++;
-      if (TALK_SCRIPTS[idx].cond == TC_WX && TALK_SCRIPTS[idx].arg != GQ_W_RAIN) other_weather++;
+      if (COND(idx) == TC_WX && TALK_SCRIPTS[idx].arg != GQ_W_RAIN) other_weather++;
     }
     EXPECT(rain > any * 2, "rain script %d times, ANY script %d times", rain, any);
     EXPECT(other_weather == 0, "a script for another weather was chosen");
@@ -303,7 +306,7 @@ static void test_selection(void) {
   for (int k = 0; k < 3000; k++) {
     talk_init();
     talk_begin(GQ_NPC_MIRA);
-    int idx = talk_dbg_last() & 0xFF, c = TALK_SCRIPTS[idx].cond;
+    int idx = talk_dbg_last() & 0xFF, c = COND(idx);
     EXPECT(c != TC_WX || TALK_SCRIPTS[idx].arg == GQ_W_CLEAR, "weather script chosen in clear weather");
     EXPECT(c != TC_DID && c != TC_FEST && c != TC_TEMP && c != TC_LIVE && c != TC_FRIEND && c != TC_EVENT, "condition %d chosen but false", c);
     EXPECT(c != TC_SEASON || TALK_SCRIPTS[idx].arg == 0, "wrong season");
@@ -311,7 +314,7 @@ static void test_selection(void) {
   }
   // an action the hero did 31 game minutes ago no longer counts; 29 still does
   int did_idx = -1;
-  for (int i = TALK_FIRST[0]; i < TALK_FIRST[1]; i++) if (TALK_SCRIPTS[i].cond == TC_DID && TALK_SCRIPTS[i].arg == TD_SOLD) did_idx = i;
+  for (int i = TALK_FIRST[0]; i < TALK_FIRST[1]; i++) if (COND(i) == TC_DID && TALK_SCRIPTS[i].arg == TD_SOLD) did_idx = i;
   if (did_idx >= 0) {
     baseline();
     talk_on_event(GQ_EV_SOLD, 3, 1);
@@ -340,7 +343,7 @@ static void test_selection(void) {
 static void test_turn_order(void) {
   // speakers alternate from the opener; the hero opens exactly the scripts the source says
   for (int idx = 0; idx < TALK_FIRST[10]; idx++) {
-    int p = TALK_SCRIPTS[idx].pack, turns = ((p >> 10) & 3) + 1, first = p & 0x3FF, hero = (p >> 12) & 1;
+    int p = TALK_SCRIPTS[idx].pack, turns = (p >> 14) + 1, first = line_of_offset(p & 0x3FFF), hero = (TALK_SCRIPTS[idx].cond & TS_HERO) ? 1 : 0;
     int npc = 1;
     while (npc < 9 && idx >= TALK_FIRST[npc]) npc++;
     if (idx >= TALK_FIRST[9]) npc = 1;
@@ -511,7 +514,9 @@ static void test_game(int seed) {
 
 int main(int argc, char** argv) {
   std::setvbuf(stdout, nullptr, _IOLBF, 0);
-  int only_game = argc > 1 ? std::atoi(argv[1]) : 0;   // `test_talk N` runs only the 30-day game of seed N (so the three can run in parallel)
+  // `test_talk N` runs only the 30-day game of seed N (so the three can run in parallel); `test_talk q` runs everything but the games
+  int quick = argc > 1 && argv[1][0] == 'q';
+  int only_game = argc > 1 && !quick ? std::atoi(argv[1]) : 0;
   if (only_game) test_game(only_game);
   else {
     test_tables();
@@ -521,7 +526,7 @@ int main(int argc, char** argv) {
     test_selection();
     test_solo_and_quest();
     test_variety();
-    for (int seed = 1; seed <= 3; seed++) test_game(seed);
+    if (!quick) for (int seed = 1; seed <= 3; seed++) test_game(seed);
   }
   if (g_fail) { std::printf("test_talk: %d FAILURES\n", g_fail); return 1; }
   std::printf("test_talk OK\n");
