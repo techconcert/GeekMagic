@@ -92,6 +92,14 @@ jobs:
       # RECOVERY-CHANGE (chunk1): gate G7 with the ELF (symbols, linker layout, RAM); the toolchain comes with PlatformIO
       - name: Recovery safety check (again, explicitly)
         run: python tools/check_bin.py --require-elf dist/*.bin
+      - name: Link flags (was -u _printf_float removed?) and the biggest symbols
+        run: |
+          for e in dist/*.elf; do
+            echo "== $e"
+            ~/.platformio/packages/toolchain-xtensa*/bin/xtensa-lx106-elf-size -A "$e" | grep -E "^\.(irom0\.text|text|data|rodata|bss) "
+            ~/.platformio/packages/toolchain-xtensa*/bin/xtensa-lx106-elf-nm -S --size-sort -C "$e" | tail -25
+            ~/.platformio/packages/toolchain-xtensa*/bin/xtensa-lx106-elf-nm "$e" | grep -cE "_printf_float|_strtod_l|_dtoa_r|MDNSResponder" || true
+          done
       - name: Size report (G9)
         run: |
           ls -l dist/
@@ -108,41 +116,11 @@ jobs:
           path: dist/*.elf
           if-no-files-found: error
 
-  # RECOVERY-CHANGE (chunk1): quest with GQ_FLASH_SAVE=1 compiled in. Runs every gate, is NEVER published
-  # (approval A1 pending): its artifact has its own name and the publish job copies only GeekQuest-firmware.
-  firmware-flashsave:
-    name: Firmware with flash saving compiled in (gates only, not published)
-    runs-on: ubuntu-24.04
-    needs: core
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - uses: actions/cache@v4
-        with:
-          path: ~/.platformio
-          key: pio-${{ hashFiles('platformio.ini') }}
-      - run: pip install platformio
-      - name: Build quest_save
-        run: pio run -e quest_save
-      - name: Recovery safety check (journal must be present)
-        run: python tools/check_bin.py --require-elf --flash-save 1 dist/*.bin
-      - name: Size report (G9)
-        run: python tools/size_report.py dist/*.bin
-      - uses: actions/upload-artifact@v4
-        with:
-          name: GeekQuest-flashsave-UNAPPROVED-do-not-flash
-          path: dist/*.bin
-          if-no-files-found: error
-
   publish:
     name: Publish to the builds branch
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    needs: [core, guard, firmware, firmware-flashsave]
+    needs: [core, guard, firmware]
     permissions:
       contents: write
     steps:
@@ -170,3 +148,25 @@ jobs:
           git add -A
           git commit -m "Build ${{ github.sha }}" || echo "nothing to commit"
           git push origin builds
+      # R2: a GitHub Release with the two firmware files, the browser preview and checksums (the download page for the owner).
+      # Uses the built-in GITHUB_TOKEN (permissions: contents: write above). Older releases are left alone.
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -e
+          SHORT=$(echo "${{ github.sha }}" | cut -c1-7)
+          TAG="r-$SHORT"
+          mkdir -p rel
+          cp out/GeekQuest-firmware/*.bin rel/
+          cp out/GeekQuest-preview/index.html rel/preview.html
+          (cd rel && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          NOTES="GeekQuest build $SHORT (commit ${{ github.sha }}).
+
+          Flash SDP_GeekQuest_quest_*.bin (the game) on the clock's update page (http://<clock IP>/update, or http://192.168.4.1/update on the GEEKQUEST-XXXX rescue network). SDP_GeekQuest_test_*.bin is the display test build. Check the SHA256 sums in SHA256SUMS.txt. Read docs/RECOVERY.md before installing."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" rel/* --clobber
+          else
+            gh release create "$TAG" rel/* --target "${{ github.sha }}" --title "GeekQuest $SHORT" --notes "$NOTES" --latest
+          fi

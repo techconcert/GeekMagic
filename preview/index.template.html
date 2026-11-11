@@ -201,14 +201,11 @@ textarea { width: 100%; box-sizing: border-box; height: 5.2em; font-family: var(
           </div>
         </div>
         <div class="group">
-          <h2>Save</h2>
+          <h2>Restart</h2>
           <div class="seg">
-            <button class="small" id="save-export" type="button">Export save</button>
-            <button class="small" id="save-import" type="button">Import save</button>
-            <button class="small" id="save-restart" type="button">Simulate restart</button>
+            <button class="small" id="restart" type="button">Simulate restart</button>
           </div>
-          <textarea id="save-hex" spellcheck="false" aria-label="Save as hex" placeholder="Save as hex (192 bytes)"></textarea>
-          <p class="note" id="save-msg"></p>
+          <p class="note">The game is not saved: a restart starts again on day 1.</p>
         </div>
         <div class="group">
           <h2>Live values</h2>
@@ -258,7 +255,7 @@ textarea { width: 100%; box-sizing: border-box; height: 5.2em; font-family: var(
     scene = sc;
     ex.init(sc, 12345);
     setStatus(0, "IP 192.168.1.50");
-    setStatus(1, "GEEKQUEST.LOCAL");
+    setStatus(1, "");
     setStatus(2, "PREVIEW BUILD");
     setStatus(3, "");
     startDay = null; lastDate = "";
@@ -412,35 +409,8 @@ textarea { width: 100%; box-sizing: border-box; height: 5.2em; font-family: var(
     $("card-period").addEventListener("change", () => ex.set_option(0, +$("card-period").value));
     $("wifi-down").addEventListener("change", () => ex.set_net($("wifi-down").checked ? 1 : 0));
     $("clock-approx").addEventListener("change", () => ex.clock_quality($("clock-approx").checked ? 1 : 0));
-    $("save-export").addEventListener("click", doExport);
-    $("save-import").addEventListener("click", () => doImport($("save-hex").value));
-    $("save-restart").addEventListener("click", () => {
-      const hex = doExport();
-      start(1);
-      doImport(hex);
-    });
+    $("restart").addEventListener("click", () => start(scene));
   }
-  function saveMsg(t) { $("save-msg").textContent = t; }
-  function doExport() {
-    const len = ex.save_export();
-    if (!len) { saveMsg("Export failed (village scene only)."); return ""; }
-    const b = new Uint8Array(mem.buffer, ex.save_ptr(), len);
-    const hex = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
-    $("save-hex").value = hex;
-    saveMsg("Exported " + len + " bytes.");
-    return hex;
-  }
-  function doImport(hex) {
-    hex = (hex || "").replace(/[^0-9a-fA-F]/g, "");
-    const n = hex.length >> 1;
-    if (n < 1 || n > 192) { saveMsg("Import rejected: expected 192 bytes, got " + n + "."); return; }
-    const b = new Uint8Array(mem.buffer, ex.save_ptr(), 192);
-    b.fill(0);
-    for (let i = 0; i < n; i++) b[i] = parseInt(hex.substr(i * 2, 2), 16);
-    saveMsg(ex.save_import(n) ? "Import accepted." : "Import rejected: bad magic, length or checksum. Nothing changed.");
-    readout();
-  }
-
   function seg(groupId, onPick) {
     const g = $(groupId);
     g.addEventListener("click", (e) => {

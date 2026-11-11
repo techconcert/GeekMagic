@@ -1,125 +1,120 @@
 # GeekQuest
 
-A self-playing pixel-art village game for the GeekMagic 240x240 ESP8266 clock
-(SD Pro / "Smart weather clock Pro", ST7789 display). A small adventurer takes
-breaks from questing to wander the village, chop wood, fish and chat. No input
-needed. It also shows the time.
+A self-playing pixel-art village game for the GeekMagic 240x240 ESP8266 clock. A small
+adventurer takes breaks from questing to wander the village, chop wood, fish, trade and
+chat. You never press anything: it is a clock with a little world in it. The bottom band
+shows what the hero is doing right now, the clock's IP address and the uptime.
 
-## Status
+**Download:** every build of the `main` branch is published on the
+[Releases page](https://github.com/techconcert/GeekMagic/releases) (the newest release is marked
+"Latest"). Each release has the two firmware files, `preview.html` (the game in your browser)
+and `SHA256SUMS.txt`.
 
-| Build | What it does |
+## Hardware
+
+- GeekMagic SD Pro / SmallTV-style clock: ESP8266 (ESP-12, 4 MB flash) with a 240x240 ST7789
+  display.
+- Display wiring (from the [GeekMagic-Open-Firmware](https://github.com/Times-Z/GeekMagic-Open-Firmware)
+  teardown): hardware SPI mode 3 at 40 MHz, MOSI 13, SCLK 14, DC 0, RST 2, CS tied to ground,
+  backlight on GPIO 5 (active LOW).
+- No serial adapter is needed or assumed. Everything is installed and recovered over WiFi.
+
+## Builds
+
+| File | What it is |
 |---|---|
-| `test` | Hardware check: grass field, hero walking a loop, RGB colour bars, clock, FPS, update page. **Flash this first.** |
-| `quest` | The village game: day/night, chopping, fishing, trading, chatting, questing, sleeping. |
+| `SDP_GeekQuest_quest_<version>.bin` | The game. |
+| `SDP_GeekQuest_test_<version>.bin` | Display test: grass field, walking hero, RGB colour bars, FPS. Flash this first if you are unsure about colours. |
 
-## Getting a build
+The names start with `SDP` because the stock updater only accepts such names.
 
-Every push runs GitHub Actions (`.github/workflows/build.yml`):
+## How to flash (over WiFi, no cable)
 
-1. Game core smoke test under AddressSanitizer (1 h simulated time per scene).
-2. Browser preview (`GeekQuest-preview` artifact): the same game code compiled
-   to WebAssembly. Open `index.html` to see exactly what the clock will draw.
-3. Firmware (`GeekQuest-firmware` artifact): `SDP_GeekQuest_<env>_<version>.bin`.
+**First time, from the stock firmware:** open the clock's own web page, go to its firmware update
+page and choose `SDP_GeekQuest_test_....bin` (or the quest file). Wait for the clock to restart.
 
-## Flashing (over WiFi, no cable)
+**Later, from GeekQuest:** open `http://<clock IP>/update` (the IP address is on the clock's
+bottom band and on your router's list), choose the new `.bin` and press **Upload and install**.
+The page checks the file before uploading and shows its CRC32; the clock verifies the image again
+before switching over. A failed or interrupted upload leaves the running firmware untouched.
 
-**First time, from the stock firmware:** open the clock's web page, go to the
-update page, choose `SDP_GeekQuest_test_....bin`. The stock updater only accepts
-file names starting with `SDP`, which is why builds are named that way.
+Read [docs/RECOVERY.md](docs/RECOVERY.md) once, before the first install.
 
-**Later, from GeekQuest:** open `http://<clock-ip>/update` (or
-`http://geekquest.local/update`) and choose the new `.bin`. The page checks the
-file before uploading and the clock verifies it again before switching over.
+## Recovery and the rescue hotspot
 
-## Recovery: how you never lose the ability to reflash
+Every build contains, and CI refuses to produce a `.bin` without (`tools/check_bin.py`):
 
-Plain-words guide with checklists: [docs/RECOVERY.md](docs/RECOVERY.md).
+- **The update page starts first.** WiFi and the web server start before the display or the game,
+  so a game bug cannot hide the update page.
+- **Rescue hotspot** `GEEKQUEST-XXXX`, password `GEEKQUEST`, at `http://192.168.4.1/`. It is on for
+  the first 10 minutes after every power-on and whenever the clock cannot find your WiFi. The
+  WiFi page (`/wifi`) lets you enter your network again.
+- **Crash-loop safe mode.** After 3 crashes in a row (or 5 in total without 6 hours of uptime in
+  between) the clock boots without the game and shows SAFE MODE; after 6 it also skips the
+  display. The update page still works.
+- **Automatic restarts** (approved in R2): after hours without WiFi, with very low memory, and once
+  a week at night. They never happen while a firmware upload is running, are rate limited, and
+  count towards safe mode like any restart.
+- **Size limit.** The ESP8266 holds the running firmware while receiving the next one, both inside
+  a 1 MB area. CI fails any build over 500 KB, so updates always fit, including going back to
+  stock.
+- **Stock files are never touched.** Same flash layout as the stock firmware; the code never writes
+  flash by itself (only the update page's Updater does), and CI forbids EEPROM, LittleFS and SPIFFS
+  code. Flashing `SDPro_V1.0.6_....bin` from the GeekQuest update page brings the original clock
+  back.
+- **The game is not saved.** After any restart or power cut the game starts on day 1. Only the
+  settings (time zone, brightness, colour depth, card period) are kept in RTC memory across
+  restarts and updates. The status page reports whether flash sector 0x3FA000 is blank (read only):
+  a later release may use it.
 
-Every build has these, and CI refuses to produce a `.bin` without them
-(`tools/check_bin.py`):
+Gates: `tools/lint_safety.py`, `tools/check_bin_selftest.py`, `tools/check_bin.py` on every `.bin`,
+a size report, and `tools/recovery_guard.py` (a `RECOVERY-CHANGE:` commit line and a new
+`GQ_RECOVERY_REV` whenever a recovery file changes).
 
-- **The update page starts first.** WiFi and the web server start before the
-  display or the game, so a game bug can't hide the update page. Pages are
-  streamed from flash, so they work even when memory is low.
-- **Rescue hotspot.** If the clock isn't on your WiFi (and for the first 10
-  minutes after every boot, during which nothing can restart the clock by
-  itself), it opens its own network `GEEKQUEST-XXXX`, password `GEEKQUEST`.
-  Join it and open `http://192.168.4.1/`. Any address you type redirects there.
-- **Crash-loop safe mode.** 3 crashes in a row, or 5 crashes in total without
-  6 hours of uptime in between, and the clock boots with the game turned off,
-  showing SAFE MODE and the hotspot details. After 6 crashes in a row it also
-  skips the display. WiFi and the update page still work. You can also choose
-  "Restart in safe mode" on the status page.
-- **Saved game quarantine.** If the clock crashes repeatedly right after
-  loading a saved game, it starts a fresh game and leaves the stored one
-  alone until you choose to retry or discard it.
-- **Settings and game survive restarts and updates** (kept in RTC memory; lost
-  on a power cut). "Download backup" / "Restore backup" on the status page keep
-  a copy on your phone. Flash saving exists in the code but is compiled out
-  until approved (`GQ_FLASH_SAVE`).
-- **Size limit.** The ESP8266 keeps the running firmware while it receives the
-  new one, both inside a 1 MB area. CI fails any build over 500 KB, so updates
-  always fit, including going back to stock.
-- **Stock files are never touched.** The game uses the same flash layout as
-  the stock firmware and never writes to its 3 MB file area or its settings
-  sector (CI checks the linker symbols and forbids the EEPROM, LittleFS and
-  SPIFFS code). Flashing `SDPro_V1.0.6_....bin` from the GeekQuest update page
-  brings back the original clock with its settings.
-- **Bad uploads don't install.** The image is checked (ESP8266 magic byte, 4 MB
-  flash header, size) and fully verified before anything is replaced. A failed
-  or interrupted upload leaves the current firmware running. The update page
-  also shows the file's CRC32; the clock checks CRC, size and the presence of
-  the update page itself, and enforces that when built with `GQ_STRICT_UPLOAD=1`
-  (off until approved).
-- **Approval switches** in `platformio.ini`, all `0`: `GQ_FLASH_SAVE`,
-  `GQ_AUTO_RESTART`, `GQ_STRICT_UPLOAD`. CI also builds `quest` with
-  `GQ_FLASH_SAVE=1` (gates only, never published).
+## Build and test
 
-CI gates for this layer: `tools/lint_safety.py` (source rules),
-`tools/check_bin_selftest.py`, `tools/check_bin.py` on every `.bin`, a size
-report, and a guard that requires a `RECOVERY-CHANGE:` line in the commit and a
-new `GQ_RECOVERY_REV` whenever a recovery file changes.
-
-What this cannot protect against: a power cut in the few seconds while the
-bootloader copies a verified image into place (very rare), and hardware faults.
-
-## Display facts
-
-ST7789 240x240 on hardware SPI, mode 3, 40 MHz. MOSI 13, SCLK 14, DC 0, RST 2,
-CS tied to ground, backlight on GPIO 5 (active LOW). Pin facts come from the
-[GeekMagic-Open-Firmware](https://github.com/Times-Z/GeekMagic-Open-Firmware)
-teardown. If colours look swapped on the test build, use the "Display test"
-links on the status page (not saved) and tell us which one looked right.
-
-## Making art
-
-Tiles and sprites live in `assets/src/*.png` on a 16x16 grid using the
-16-colour palette in `tools/palette.py` (load `assets/palette.gpl` in Aseprite
-or LibreSprite; magenta = transparent). After editing:
+Firmware (PlatformIO, ESP8266 Arduino core):
 
 ```
-python tools/png2tiles.py      # writes lib/gamecore/src/assets_gen.h
+pio run -e quest        # the game  -> dist/SDP_GeekQuest_quest_<version>.bin
+pio run -e test         # display test build (the only one with the test scene)
 ```
 
-`tools/make_art.py` generated the starter art; running it again overwrites the
-PNGs.
-
-## Layout
+Host tests (no ESP8266 needed; run every `test/*.cpp`, `test_world` and `test_soak` take minutes):
 
 ```
-firmware/        ESP8266 entry, ST7789 driver, recovery layer (safety.cpp)
-lib/gamecore/    portable game core (no heap, no libc), used by firmware and preview
+for t in test/*.cpp; do
+  g++ -std=c++17 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -Wall -Wextra -Werror \
+    -o /tmp/$(basename $t .cpp) $t lib/gamecore/src/*.cpp lib/gqsafe/src/*.cpp && /tmp/$(basename $t .cpp)
+done
+python3 tools/lint_safety.py && python3 tools/lint_safety.py --selftest
+python3 tools/check_bin_selftest.py
+```
+
+Browser preview (clang with wasm32 and lld): `tools/build_preview.sh` writes `preview/dist/index.html`.
+
+Art: tiles and sprites are `assets/src/*.png` on a 16x16 grid with the 16-colour palette in
+`tools/palette.py`. After editing run `python tools/png2tiles.py`.
+
+## Repository layout
+
+```
+firmware/        ESP8266 entry (main.cpp), ST7789 driver, recovery layer (safety.cpp, netwatch.cpp), prefs.cpp
+lib/gamecore/    portable game core (no heap, no libc), used by the firmware and the preview
+lib/gqsafe/      pure decision code of the recovery layer (boot counters, WiFi ladder, upload checks)
 assets/src/      editable PNG sheets
-tools/           converters, version stamp, .bin safety check, source lint, CI guards
-docs/            design, recovery guide for the owner
+tools/           asset converter, version stamp, .bin safety checks, source lint, CI guards
+docs/            design notes, the owner's recovery guide
 preview/         browser preview (WebAssembly)
-test/            host smoke test
+test/            host tests
 ```
 
-## Rendering approach
+## How it draws
 
-No full framebuffer (115 KB would not fit in RAM). The screen is 15 strips of
-240x16 pixels, one tile row each. Only strips that changed are redrawn and sent
-(7.5 KB each). Art is stored as 4-bit indexed tiles (128 bytes per tile) in
-flash and expanded through a 16-colour palette, which also makes day/night tints
-cheap.
+No full framebuffer (115 KB would not fit). The screen is 15 strips of 240x16 pixels; only strips
+that changed are redrawn and sent. Art is stored as 4-bit indexed tiles in flash and expanded
+through a 16-colour palette, which also makes the day/night tints cheap.
+
+## License
+
+Public domain: [CC0 1.0 Universal](LICENSE). No rights reserved.

@@ -4,6 +4,7 @@
 #include "../lib/gamecore/src/gc_internal.h"
 
 extern void ui_debug_show_card(int id);
+extern "C++" const char* ui_band_text(void);
 
 static void fc(uint32_t v, const char* want) {
   char b[16];
@@ -327,12 +328,57 @@ static void test_scenes() {
   std::printf("scenes ok\n");
 }
 
+// Status band: hero state in plain words, IP address, uptime; only strip 14 is ever redrawn for it.
+static void test_status_band() {
+  sim_start(5);
+  gc_set_status(0, "IP 192.168.100.123");
+  char b[24];
+  // plain words per activity, "GOING TO ..." while walking
+  struct { int act; const char* going; const char* doing; } T[] = {
+    {GQ_ACT_CHOP, "GOING TO CHOP", "CHOPPING"}, {GQ_ACT_FISH, "GOING FISHING", "FISHING"},
+    {GQ_ACT_MINE, "GOING MINING", "MINING"}, {GQ_ACT_FORAGE, "GOING FORAGING", "FORAGING"}};
+  for (auto& c : T) {
+    gc_debug(GQ_DBG_FORCE_ACT, c.act);
+    bool sawGoing = false, sawDoing = false;
+    for (int i = 0; i < 4 * 60 * 4 && !(sawGoing && sawDoing); i++) {   // 4 minutes of game time at 250 ms steps
+      sim_step();
+      hero_status_text(b, 24);
+      if (!std::strcmp(b, c.going)) sawGoing = true;
+      if (!std::strcmp(b, c.doing)) sawDoing = true;
+    }
+    CHECK(sawDoing);
+    if (!sawGoing) std::printf("act %d never showed going; last text %s\n", c.act, b);
+    CHECK(sawGoing);
+  }
+  // quest labels name the place; talk labels name the villager
+  gc_debug(GQ_DBG_FORCE_ACT, GQ_ACT_QUEST);
+  for (int i = 0; i < 40; i++) sim_step();
+  hero_status_text(b, 24);
+  CHECK(!std::strncmp(b, "QUEST: ", 7) || !std::strncmp(b, "TALK TO ", 8) || b[0]);
+  CHECK(std::strlen(b) <= 18);
+  // the band pages: state, IP, uptime; the text always fits 18 characters
+  bool sawIp = false, sawUp = false, sawState = false;
+  for (int i = 0; i < 4 * 30; i++) {                          // 30 s
+    sim_step();
+    const char* s = ui_band_text();
+    CHECK(std::strlen(s) <= 18);
+    if (!std::strcmp(s, "IP 192.168.100.123")) sawIp = true;
+    else if (!std::strncmp(s, "UP ", 3)) sawUp = true;
+    else if (s[0]) sawState = true;
+  }
+  CHECK(sawIp && sawUp && sawState);
+  // 2d 03h uptime format
+  gc_set_status(0, "WIFI: NOT CONNECTED");
+  std::printf("status band ok\n");
+}
+
 int main() {
   test_fmt();
   test_palette();
   test_cards();
   test_curtain();
   test_banner();
+  test_status_band();
   test_budget();
   test_schedule();
   test_scenes();

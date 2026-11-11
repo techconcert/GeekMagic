@@ -1,5 +1,8 @@
 # GeekQuest design: "Elderwick" (village life, quests, and a clock that never needs a cable)
 
+> **R2 note.** Release R2 removed the save/backup/restore system described in sections 8.8 and 9 (gc_save_*, persist.*, the flash journal, /backup, /save, /factory, /quarantine, approval A1), turned approval A2 (automatic restarts) on, moved the display-test scene behind `GQ_TEST_SCENE` (env:test only) and replaced the goal band with a status band (hero state, IP address, uptime). Where this document disagrees, docs/RECOVERY.md and the code are right.
+
+
 Status: DESIGN ONLY. Nothing in this document is implemented yet. No code was changed to write it.
 Audience: the user (owner of the clock) and the engineers (coding models) who implement the chunks in section 11.
 

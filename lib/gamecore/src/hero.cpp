@@ -1177,5 +1177,5 @@ void hero_status_text(char* buf, int cap) {
   }
   if (act == GQ_ACT_CHAT && s_force_npc) { st_cat(buf, cap, "TALK TO ", gq_npc_name(s_force_npc)); return; }
   if (act <= 0 || act >= GQ_ACT_COUNT) { str_copy(buf, "IDLE", cap); return; }
-  str_copy(buf, T.on ? ST_GOING[act] : ST_DOING[act], cap);
+  str_copy(buf, (T.on || h->phase == 0) ? ST_GOING[act] : ST_DOING[act], cap);   // phase 0 = about to set off
 }

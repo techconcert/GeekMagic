@@ -271,6 +271,8 @@ static void band_update(void) {
   }
 }
 
+const char* ui_band_text(void) { return s_b_text; }   // for the tests
+
 static void banner(int icon, const char* text, int32_t ms) {
   str_copy(s_ban_text, text, 20);
   s_ban_icon = (uint8_t)icon;
