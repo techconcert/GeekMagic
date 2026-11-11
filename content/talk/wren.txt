@@ -1,0 +1,108 @@
+# WREN, the travelling merchant. Voice: showy, far countries, always selling. Running jokes: every item is "one of a kind",
+# every price is "special", every country is far (and some are Neverwhere); he calls the hero "friend".
+# Counts: 20 scripts, 55 lines = 8 of 2 turns, 9 of 3 turns, 3 of 4 turns; the hero opens 11.
+# Run:  python3 tools/gen_talk.py --check content/talk/wren.txt
+
+# ---------------------------------------------------------------- ANY (3)
+@ ANY
+N: THIS MAP SHOWS THE|ISLE OF NEVERWHERE.
+H: NEVERWHERE? THAT'S|NOT A REAL PLACE!
+N: NO ONE HAS EVER|COMPLAINED, EITHER.
+
+@ ANY
+H: WHAT'S IN THE|STRIPED JAR, {N}?
+N: DESERT WIND. STILL|FRESH. 5 COINS.
+
+@ ANY
+N: ONE OF A KIND HAT!|IMPORTED. UNIQUE!
+H: THERE ARE THREE|MORE IN THAT BOX.
+N: THREE OF A KIND.|IT IS A SET NOW.
+H: DOES THE SET COME|AT A SPECIAL PRICE?
+
+# ---------------------------------------------------------------- TIME (2)
+@ TIME MORNING
+N: UP EARLY! THE DAWN|IS ON SALE TODAY.
+H: HOW MUCH FOR A|SUNRISE?
+N: THIS ONE IS FREE.|TOMORROW'S COSTS 2.
+
+@ TIME LATE
+H: YOU'RE UP LATE,|{N}. STILL OPEN?
+N: THE MARKETS OF ZAHR|NEVER CLOSE. NOR I.
+
+# ---------------------------------------------------------------- WEATHER AND TEMPERATURE (3)
+@ WX RAIN
+H: RAIN! DO YOU SELL|UMBRELLAS, {N}?
+N: ONE! FROM THE LAND|OF NO RAIN. UNUSED.
+H: THEN HOW DO YOU|KNOW IT WORKS?
+N: FAITH, MY FRIEND.|FAITH IS 6 COINS.
+
+@ TEMP COLD
+H: {T}! MY EARS ARE|GONE. HAT, PLEASE?
+N: FOX FUR HAT: 12|COINS. FOX AGREED.
+
+@ TEMP HOT
+N: {T}! TODAY I SELL|SHADE BY THE HOUR.
+H: A TREE GIVES SHADE|FOR FREE, {N}!
+N: MY SHADE COMES|WITH A FANCY HAT.
+
+# ---------------------------------------------------------------- SEASON (2)
+@ SEASON SPRING
+H: SPRING WIND! COULD|A KITE LIFT ME UP?
+N: IT LIFTED A GOAT.|NO REFUNDS ALOFT.
+
+@ SEASON WINTER
+N: IMPORTED SNOW FROM|THE NORTH. 8 COINS.
+H: IT FALLS ON MY HEAD|FOR FREE, {N}!
+N: THAT SNOW IS LOCAL.|MINE IS CERTIFIED.
+
+# ---------------------------------------------------------------- FESTIVAL (1)
+@ FEST RUNNING
+H: GREAT MASKS, {N}!|WHICH LAND IS THIS?
+N: FROM THE FARTHEST|LAND: MY BACK ROOM.
+
+# ---------------------------------------------------------------- WHAT THE HERO JUST DID (3)
+@ DID BOUGHT
+N: A NEW TOOL! MINE|COME FROM 7 LANDS.
+H: MINE'S FROM MIRA'S.|IT CUTS TREES WELL.
+
+@ DID GIFTED
+H: I JUST GAVE A GIFT.|IT FEELS SO GOOD!
+N: A SALE WITH NO|COINS? HOW ODD.
+H: THE SMILE IS THE|PAYMENT, {N}!
+
+@ DID SOLD
+H: I SOLD MY LOOT TO|MIRA. QUICK MONEY!
+N: SHE SELLS IT TO ME.|THEN TO THE MOON.
+
+# ---------------------------------------------------------------- QUEST AND CHAPTER (2)
+@ QUEST NONE
+H: I'M FREE. NEED|ANYTHING DELIVERED?
+N: PARCEL TO EAST SEA.|40 DAYS BY CART.
+H: 40 DAYS? I'LL NEED|A VERY BIG LUNCH.
+
+@ QUEST STORY
+N: YOUR BELL JOB! I|HAVE ONE. IMPORTED.
+H: IS IT BIG ENOUGH|FOR THE TOWER?
+N: IT FITS A CAT'S|NECK. SAME THING.
+
+# ---------------------------------------------------------------- FRIENDSHIP, one per tier (3)
+@ FRIEND 1
+N: A SPECIAL PRICE|FOR MY NEW FRIEND!
+H: SPECIAL FOR ME OR|FOR EVERYONE?
+
+@ FRIEND 2
+H: {N}, ARE YOUR|STORIES TRUE?
+N: HALF. I NEVER SAY|WHICH HALF.
+H: I PICK THE HALF|WITH THE DRAGON!
+
+@ FRIEND 3
+H: {N}, I BROUGHT YOU|A GIFT. NO CATCH.
+N: A GIFT? NO PRICE?|I FEEL FAINT.
+H: IT'S A SHELL. FROM|THE LOCAL BEACH.
+N: LOCAL?! PRICELESS.|I'LL NEVER SELL IT.
+
+# ---------------------------------------------------------------- GOAL (1)
+@ GOAL TOOL
+N: YOU WANT {G}?|I KNOW A MERCHANT.
+H: WHO IS HE? WHAT'S|HIS PRICE?
+N: HE IS ME. THE PRICE|IS... SPECIAL.
