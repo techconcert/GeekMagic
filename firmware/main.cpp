@@ -33,6 +33,11 @@ static void updateStatus() {
   snprintf(buf, sizeof(buf), "FW %s", GQ_VERSION);
   gc_set_status(3, buf);
 
+#if defined(GQ_HAVE_SET_NET)
+  // GC_NET_ONLINE 0, GC_NET_OFFLINE 1, GC_NET_AP_ONLY 2 (defined by the game core, design 10.2)
+  gc_set_net(safety::staConnected() ? 0 : (safety::apActive() ? 2 : 1));
+#endif
+
   int h, m;
   if (safety::localTime(h, m)) gc_set_clock(h, m, 1);
   else gc_set_clock(0, 0, 0);

@@ -12,6 +12,8 @@
 #include <user_interface.h>
 
 #include "st7789.h"
+// RECOVERY-CHANGE (0B): the WiFi ladder lives in netwatch (state machine in lib/gqsafe)
+#include "netwatch.h"
 
 #include <coredecls.h>   // settimeofday_cb
 
@@ -23,7 +25,9 @@ static const uint8_t CRASHES_FOR_SAFE_MODE = 3;
 static const uint8_t CRASHES_FOR_NO_DISPLAY = 6;
 static const uint32_t STABLE_AFTER_MS = 60UL * 1000;
 static const uint32_t AP_GRACE_MS = 10UL * 60 * 1000;  // AP stays up 10 min after boot
-static const uint32_t STA_LOST_AP_MS = 60UL * 1000;    // AP returns after 60 s without WiFi
+// RECOVERY-CHANGE (0B): STA_LOST_AP_MS removed; the 60 s rule now lives in netfsm.cpp
+// RECOVERY-CHANGE (0B): revision of the recovery layer (design 8.10 rule 6)
+static const uint32_t GQ_RECOVERY_REV = 1;
 
 // RTC user memory. Offset 0 is used by eboot to pass the OTA copy command,
 // so we stay well clear of it (offset is in 4-byte blocks).
@@ -47,7 +51,9 @@ static String s_upError;
 static uint32_t s_upBytes = 0;
 static bool s_stableMarked = false;
 static bool s_ap = false;
-static uint32_t s_staLostSince = 0;
+// RECOVERY-CHANGE (0B): s_staLostSince removed together with wifiPolicy()
+static uint32_t s_bootMs = 0;        // RECOVERY-CHANGE (0B): latched time base for the two timers below
+static bool s_golden = true;         // RECOVERY-CHANGE (0B): first 10 minutes of uptime, latched
 static char s_apName[24];
 static uint32_t s_crashes = 0;
 static uint32_t s_lastStage = 0;     // stage reached before the previous reset
@@ -112,7 +118,8 @@ void plannedRestart(bool intoSafeMode) {
 }
 
 // ------------------------------------------------------------ WiFi
-static void startAP() {
+// RECOVERY-CHANGE (0B): startAP()/stopAP() are no longer static (netwatch calls them); bodies unchanged
+void startAP() {
   if (s_ap) return;
   WiFi.softAPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1), IPAddress(255, 255, 255, 0));
   WiFi.softAP(s_apName, AP_PASS);
@@ -121,23 +128,14 @@ static void startAP() {
   s_ap = true;
 }
 
-static void stopAP() {
+void stopAP() {
   if (!s_ap) return;
   dns.stop();
   WiFi.softAPdisconnect(false);
   s_ap = false;
 }
 
-static void wifiPolicy() {
-  bool sta = WiFi.status() == WL_CONNECTED;
-  uint32_t now = millis();
-  if (sta) s_staLostSince = 0;
-  else if (!s_staLostSince) s_staLostSince = now ? now : 1;
-
-  if (s_safe || s_updating) { startAP(); return; }
-  if (!sta && s_staLostSince && now - s_staLostSince > STA_LOST_AP_MS) startAP();
-  if (sta && now > AP_GRACE_MS && WiFi.softAPgetStationNum() == 0) stopAP();
-}
+// RECOVERY-CHANGE (0B): wifiPolicy() removed; netwatch::loop() replaces it
 
 // ------------------------------------------------------------ web pages
 static const char PAGE_HEAD[] PROGMEM = R"HTML(<!doctype html><html><head><meta charset="utf-8">
@@ -205,6 +203,7 @@ static void sendPage(const String& body) {
 }
 
 static void handleRoot() {
+  netwatch::noteHttp();   // RECOVERY-CHANGE (0B)
   String b;
   b.reserve(1800);
   b += F("<h2>GeekQuest clock</h2>");
@@ -214,6 +213,11 @@ static void handleRoot() {
   b += F("<tr><td>WiFi</td><td>");
   if (WiFi.status() == WL_CONNECTED) { b += htmlEscape(WiFi.SSID()); b += F(" ("); b += WiFi.localIP().toString(); b += F(")"); }
   else b += F("not connected");
+  // RECOVERY-CHANGE (0B): WiFi ladder diagnostics
+  b += F("</td></tr><tr><td>WiFi ladder</td><td>stage "); b += netwatch::stage();
+  b += F(", attempts "); b += netwatch::attempts();
+  b += F(", down "); b += netwatch::downSeconds();
+  b += F(" s, last reason "); b += netwatch::lastReason();
   b += F("</td></tr><tr><td>Rescue hotspot</td><td>");
   if (s_ap) { b += s_apName; b += F(" (on, password "); b += AP_PASS; b += F(")"); }
   else b += F("off");
@@ -249,6 +253,7 @@ static void handleRoot() {
 }
 
 static void handleInfo() {
+  netwatch::noteHttp();   // RECOVERY-CHANGE (0B)
   String j;
   j.reserve(400);
   j += F("{\"version\":\""); j += F(GQ_VERSION);
@@ -270,11 +275,17 @@ static void handleInfo() {
   j += F(",\"sta_ip\":\""); j += WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : String();
   j += F("\",\"ap\":"); j += s_ap ? F("true") : F("false");
   j += F(",\"uptime_s\":"); j += millis() / 1000;
+  // RECOVERY-CHANGE (0B): WiFi ladder diagnostics and recovery revision
+  j += F(",\"net_stage\":"); j += netwatch::stage();
+  j += F(",\"net_attempts\":"); j += netwatch::attempts();
+  j += F(",\"net_down_s\":"); j += netwatch::downSeconds();
+  j += F(",\"net_reason\":"); j += netwatch::lastReason();
+  j += F(",\"recovery_rev\":"); j += GQ_RECOVERY_REV;
   j += F("}");
   server.send(200, F("application/json"), j);
 }
 
-static void handleUpdatePage() { sendPage(FPSTR(PAGE_UPDATE)); }
+static void handleUpdatePage() { netwatch::noteHttp(); /* RECOVERY-CHANGE (0B) */ sendPage(FPSTR(PAGE_UPDATE)); }
 
 static void uploadFail(const String& why) {
   if (!s_upFailed) {
@@ -329,6 +340,7 @@ static void handleUpdateDone() {
 }
 
 static void handleWifiPage() {
+  netwatch::noteHttp();   // RECOVERY-CHANGE (0B)
   String b = F("<h2>WiFi setup</h2><div class='box'><form method='post' action='/wifi'>"
                "Network name<input name='ssid' maxlength='32'>Password<input name='pass' type='password' maxlength='64'>"
                "<button>Save and connect</button></form><p><small>Saved in the ESP8266's own WiFi settings area, not in the stock firmware's files.</small></p></div><p><a href='/'>Back</a></p>");
@@ -336,6 +348,7 @@ static void handleWifiPage() {
 }
 
 static void handleWifiSave() {
+  netwatch::noteHttp();   // RECOVERY-CHANGE (0B)
   String ssid = server.arg("ssid"), pass = server.arg("pass");
   if (!ssid.length()) { server.send(400, F("text/plain"), F("Network name is empty")); return; }
   sendPage(F("<div class='box'>Connecting... Find the clock's new address on its screen, or keep using the rescue hotspot.</div><p><a href='/'>Back</a></p>"));
@@ -343,9 +356,11 @@ static void handleWifiSave() {
   WiFi.persistent(true);
   WiFi.begin(ssid.c_str(), pass.c_str());
   WiFi.persistent(false);
+  netwatch::setCredentials(ssid.c_str(), pass.c_str());   // RECOVERY-CHANGE (0B): RAM copy + attempt now
 }
 
 static void handleSettings() {
+  netwatch::noteHttp();   // RECOVERY-CHANGE (0B)
   if (server.hasArg("bl")) lcd::setBrightness(server.arg("bl").toInt());
   if (server.hasArg("depth")) {
     int d = server.arg("depth").toInt();
@@ -361,6 +376,7 @@ static void handleSettings() {
 }
 
 static void handleDisplay() {
+  netwatch::noteHttp();   // RECOVERY-CHANGE (0B)
   if (!s_noDisplay) {
     if (server.hasArg("madctl")) lcd::setMadctl((uint8_t)server.arg("madctl").toInt());
     if (server.hasArg("inv")) lcd::setInversion(server.arg("inv").toInt() != 0);
@@ -370,6 +386,7 @@ static void handleDisplay() {
 }
 
 static void handleNotFound() {
+  netwatch::noteHttp();   // RECOVERY-CHANGE (0B)
   if (s_ap && server.hostHeader() != WiFi.softAPIP().toString() && WiFi.softAPgetStationNum() > 0) {
     server.sendHeader(F("Location"), String(F("http://")) + WiFi.softAPIP().toString() + F("/"));
     server.send(302);
@@ -389,8 +406,10 @@ void begin() {
   // Never let routine WiFi calls write to flash; only the WiFi setup form does.
   WiFi.persistent(false);
   WiFi.mode(WIFI_AP_STA);
-  WiFi.setAutoReconnect(true);
+  // RECOVERY-CHANGE (0B): WiFi.setAutoReconnect(true) removed; netwatch::begin() turns it off
   startAP();
+  s_bootMs = millis();                 // RECOVERY-CHANGE (0B): time base for golden() and the stable marker
+  netwatch::begin(s_safe);             // RECOVERY-CHANGE (0B): after startAP(), before the first WiFi.begin()
 
   // Reconnect to the network saved in the ESP8266's WiFi settings (the stock
   // firmware normally leaves its network there).
@@ -417,7 +436,7 @@ void begin() {
   MDNS.begin("geekquest");
   MDNS.addService("http", "tcp", 80);
 
-  settimeofday_cb([]() { s_timeSynced = true; });
+  settimeofday_cb([]() { s_timeSynced = true; netwatch::noteNtp(); });   // RECOVERY-CHANGE (0B): noteNtp
   configTime(s_tz.c_str(), "pool.ntp.org", "time.google.com");
 }
 
@@ -425,13 +444,17 @@ void loop() {
   server.handleClient();
   if (s_ap) dns.processNextRequest();
   MDNS.update();
-  wifiPolicy();
-  if (!s_stableMarked && millis() > STABLE_AFTER_MS) {
+  // RECOVERY-CHANGE (0B): wifiPolicy() replaced by the ladder; absolute millis() comparisons replaced by latched flags
+  if (s_golden && millis() - s_bootMs >= AP_GRACE_MS) s_golden = false;
+  netwatch::loop();
+  if (!s_stableMarked && millis() - s_bootMs >= STABLE_AFTER_MS) {
     s_stableMarked = true;
     markStable();
   }
 }
 
+// RECOVERY-CHANGE (0B): golden()
+bool golden() { return s_golden; }
 int depth() { return s_depth; }
 bool safeMode() { return s_safe; }
 bool noDisplay() { return s_noDisplay; }
