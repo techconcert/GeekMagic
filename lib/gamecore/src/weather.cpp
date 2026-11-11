@@ -109,22 +109,27 @@ void weather_render(int strip, uint16_t* out) {
       int y = (yb + p7 * GC_RD8(&RAIN_SPEED[i % 3])) & 255;
       if (y + 4 <= y0 || y >= y0 + GC_STRIP_H) continue;
       int r = (white >> 11) & 31, g = (white >> 5) & 63, b = white & 31;
-      uint16_t c = (uint16_t)(((r >> 1) << 11) | ((g * 3 / 4) << 5) | b);   // blue-ish, follows the day tint
+      uint16_t c = (uint16_t)(((r * 3 / 5) << 11) | ((g * 7 / 8) << 5) | b);   // light blue, follows the day tint
       for (int k = 0; k < 4; k++) put(out, y0, x0, y + k, c);
     } else if (w == GQ_W_SNOW) {
       int y = (yb + p7 * ((i & 1) ? 4 : 2)) & 255;
-      if (y + 2 <= y0 || y >= y0 + GC_STRIP_H) continue;
+      if (y + 3 <= y0 || y >= y0 + GC_STRIP_H) continue;
       int t = (p7 + i * 5) & 15;
       int x = x0 + (t < 8 ? t : 15 - t) - 4;
+      uint16_t sh = g_pal[P_GREY];             // a grey edge keeps flakes visible on snow
       for (int k = 0; k < 2; k++) { put(out, y0, x, y + k, white); put(out, y0, x + 1, y + k, white); }
+      put(out, y0, x + 2, y + 1, sh);
+      put(out, y0, x + 1, y + 2, sh);
     } else if (w == GQ_W_WINDY) {
       // leaves / petals: 3x2 pixels drifting sideways with a little bob
       int x = (x0 + p7 * ((i & 1) ? 6 : 4)) & 255;
       int t = (p7 * 2 + i * 3) & 15;
       int y = 24 + yb * 190 / 256 + (t < 8 ? t : 15 - t);
-      if (y + 2 <= y0 || y >= y0 + GC_STRIP_H) continue;
+      if (y + 3 <= y0 || y >= y0 + GC_STRIP_H) continue;
       uint16_t c = g_pal[GC_RD8(&LEAF[cal_season() & 3][i & 1]) & 15];
-      for (int k = 0; k < 3; k++) { put(out, y0, x + k, y, c); put(out, y0, x + k, y + 1, c); }
+      for (int k = 1; k < 4; k++) put(out, y0, x + k, y, c);          // a 4x3 leaf with cut corners
+      for (int k = 0; k < 4; k++) put(out, y0, x + k, y + 1, c);
+      for (int k = 0; k < 3; k++) put(out, y0, x + k, y + 2, c);
     }
   }
 }

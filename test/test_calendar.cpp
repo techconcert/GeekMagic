@@ -169,7 +169,7 @@ static void test_festival() {
   feed(21 * 60 + 30);
   GqLook lk;
   cal_look(&lk);
-  CHECK(lk.tr >= 200 && lk.tg >= 170 && lk.tb >= 140);
+  CHECK(lk.tr >= 184 && lk.tg >= 150 && lk.tb >= 126);
 }
 
 // daily event drawn at 06:00: about 60% of days have one, all 12 kinds occur, never on festival days

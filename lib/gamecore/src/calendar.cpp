@@ -33,7 +33,7 @@ static const WxLook WX[GQ_W_COUNT] GC_ROM_ATTR = {
 
 // Festival lighting: the tint never falls below this while a festival runs (lanterns, lights).
 static const uint16_t FEST_FLOOR[4][3] GC_ROM_ATTR = {
-  {236, 220, 228}, {200, 156, 130}, {206, 170, 140}, {150, 156, 210},
+  {190, 176, 196}, {176, 138, 118}, {184, 150, 126}, {140, 146, 196},
 };
 
 // Day/night keyframes (minute, r, g, b), linear in between.
