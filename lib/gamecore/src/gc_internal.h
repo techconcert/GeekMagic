@@ -22,7 +22,9 @@ enum {
 };
 
 enum { DIR_DOWN = 0, DIR_UP = 1, DIR_LEFT = 2, DIR_RIGHT = 3 };
-enum { SH_TILES = 0, SH_HERO = 1, SH_ITEMS = 2 };
+enum { SH_TILES = 0, SH_CHARS = 1, SH_ITEMS = 2 };
+// chars sheet: hero down 0..2, up 3..5, left 8..10 (right = left flipped); index by DIR_DOWN/UP/LEFT
+static const uint8_t HERO_CELL_BASE[3] = {0, 3, 8};
 
 // palette indices
 enum { P_OUTLINE = 1, P_SAND = 7, P_WHITE = 13, P_GREY = 14, P_YELLOW = 15 };

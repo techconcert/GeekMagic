@@ -87,9 +87,10 @@ extern "C" void gc_set_depth(int percent) {
 
 // --------------------------------------------------------------- drawing
 const uint8_t* sheet_cell(int sheet, int cell) {
-  if (sheet == SH_HERO) return GC_HERO[cell];
-  if (sheet == SH_ITEMS) return GC_ITEMS[cell];
-  return GC_TILES[cell];
+  if (cell < 0) cell = 0;
+  if (sheet == SH_CHARS) return GC_CHARS(cell < GC_CHARS_COUNT ? cell : 0);
+  if (sheet == SH_ITEMS) return GC_ITEMS(cell < GC_ITEMS_COUNT ? cell : 0);
+  return GC_TILES(cell < GC_TILES_COUNT ? cell : 0);
 }
 
 void blit_tile(uint16_t* out, int x, const uint8_t* tile, int transparent) {
@@ -177,10 +178,10 @@ void render_ground_row(uint16_t* out, int s, uint8_t water_frame, uint8_t fire_f
   for (int tx = 0; tx < GC_COLS; tx++) {
     uint8_t g = g_ground[s][tx];
     if (g == T_WATER && water_frame) g = T_WATER2;
-    blit_tile(out, tx * GC_TILE, GC_TILES[g], 0);
+    blit_tile(out, tx * GC_TILE, GC_TILES(g), 0);
     uint8_t o = g_obj[s][tx];
     if (o == T_FIRE && fire_frame) o = T_FIRE2;
-    if (o != T_NONE) blit_tile(out, tx * GC_TILE, GC_TILES[o], 1);
+    if (o != T_NONE) blit_tile(out, tx * GC_TILE, GC_TILES(o), 1);
   }
 }
 
@@ -297,7 +298,7 @@ static void test_render(int s, uint16_t* out) {
   if (g_th.y < y0 + GC_STRIP_H && g_th.y + 16 > y0) {
     static const uint8_t cycle[4] = {0, 1, 0, 2};
     int row = g_th.dir == DIR_RIGHT ? (int)DIR_LEFT : (int)g_th.dir;
-    blit_sprite(out, y0, g_th.x, g_th.y, GC_HERO[row * GC_HERO_COLS + cycle[g_th.step]], g_th.dir == DIR_RIGHT, 0);
+    blit_sprite(out, y0, g_th.x, g_th.y, GC_CHARS(HERO_CELL_BASE[row] + cycle[g_th.step]), g_th.dir == DIR_RIGHT, 0);
   }
   if (s == 0) draw_test_top(out, y0);
   if (s == GC_ROWS - 1) draw_test_bottom(out, y0);

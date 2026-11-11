@@ -678,7 +678,7 @@ static int actor_ops(int i, Op* ops) {
     int row = a->dir == DIR_RIGHT ? (int)DIR_LEFT : (int)a->dir;
     int flip = a->dir == DIR_RIGHT;
     int item_behind = a->dir == DIR_UP;
-    Op body = {a->x, a->y, SH_HERO, (uint8_t)(row * GC_HERO_COLS + cycle[a->step]), (uint8_t)flip, (uint8_t)i, 0};
+    Op body = {a->x, a->y, SH_CHARS, (uint8_t)(HERO_CELL_BASE[row] + cycle[a->step]), (uint8_t)flip, (uint8_t)i, 0};
     Op item = {0, 0, SH_ITEMS, 0, 0, (uint8_t)i, 0};
     int has_item = a->item != I_NONE;
     if (has_item) {
@@ -853,10 +853,10 @@ void village_tick(uint32_t dt) {
 static void draw_hud(uint16_t* out, int y0) {
   darken_rect(out, y0, 0, 0, GC_W, 16);
   char buf[12];
-  blit_sprite(out, y0, 0, 0, GC_ITEMS[I_WOOD], 0, 0);
+  blit_sprite(out, y0, 0, 0, GC_ITEMS(I_WOOD), 0, 0);
   itoa_into(buf, g_wood);
   draw_text(out, y0, 17, 1, buf, g_ui[P_WHITE], 2, 0);
-  blit_sprite(out, y0, 58, 0, GC_ITEMS[I_COIN], 0, 0);
+  blit_sprite(out, y0, 58, 0, GC_ITEMS(I_COIN), 0, 0);
   itoa_into(buf, g_gold);
   draw_text(out, y0, 74, 1, buf, g_ui[P_YELLOW], 2, 0);
   char t[6] = {'-', '-', ':', '-', '-', 0};
@@ -907,7 +907,7 @@ void village_render(int s, uint16_t* out) {
   for (int i = 0; i < n; i++) {
     const Op& o = ops[i];
     if (o.y >= y0 + GC_STRIP_H || o.y + 16 <= y0) continue;
-    const uint8_t* remap = (o.sheet == SH_HERO && o.actor != A_HERO) ? REMAP[o.actor] : 0;
+    const uint8_t* remap = (o.sheet == SH_CHARS && o.actor != A_HERO) ? REMAP[o.actor] : 0;
     blit_sprite(out, y0, o.x, o.y, sheet_cell(o.sheet, o.cell), o.flip, remap);
   }
 

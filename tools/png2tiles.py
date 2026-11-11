@@ -4,8 +4,9 @@
 
 Rules: every pixel must be one of the 16 palette colours in tools/palette.py
 (magenta = transparent). Sheets are cut into 16x16 cells, left-to-right,
-top-to-bottom. Each cell becomes 128 bytes (2 pixels per byte, high nibble =
-left pixel). Output: lib/gamecore/src/assets_gen.h
+top-to-bottom. Each distinct cell becomes 128 bytes (2 pixels per byte, high
+nibble = left pixel); identical cells (placeholders) are stored once and found
+through GC_<NAME>_MAP, read with the GC_<NAME>(id) macro. Output: lib/gamecore/src/assets_gen.h
 """
 import os
 import sys
@@ -21,7 +22,7 @@ OUT = os.path.join(ROOT, "lib", "gamecore", "src", "assets_gen.h")
 SHEETS = [
     # (file, C name)
     ("tiles.png", "TILES"),
-    ("hero.png", "HERO"),
+    ("chars.png", "CHARS"),
     ("items.png", "ITEMS"),
 ]
 
@@ -68,15 +69,26 @@ def main():
     ]
     for fname, cname in SHEETS:
         cells, cols, rows = cut(os.path.join(SRC, fname))
-        out.append(f"// {fname}: {cols}x{rows} cells")
+        # Identical cells (placeholders) are stored once: GC_<NAME>_MAP[id] -> unique index.
+        uniq, index = [], []
+        for c in cells:
+            if c not in uniq:
+                uniq.append(c)
+            index.append(uniq.index(c))
+        assert len(uniq) <= 256
+        out.append(f"// {fname}: {cols}x{rows} cells, {len(uniq)} distinct")
         out.append(f"#define GC_{cname}_COUNT {len(cells)}")
         out.append(f"#define GC_{cname}_COLS {cols}")
-        out.append(f"static const uint8_t GC_{cname}[{len(cells)}][128] GC_ROM_ATTR = {{")
-        for i, c in enumerate(cells):
-            out.append(f" {{ // {i}")
+        out.append(f"static const uint8_t GC_{cname}_DATA[{len(uniq)}][128] GC_ROM_ATTR = {{")
+        for i, c in enumerate(uniq):
+            out.append(f" {{ // distinct {i}")
             out.append(c_bytes(c))
             out.append(" },")
         out.append("};")
+        out.append(f"static const uint8_t GC_{cname}_MAP[{len(cells)}] GC_ROM_ATTR = {{")
+        out.append(c_bytes(bytes(index)))
+        out.append("};")
+        out.append(f"#define GC_{cname}(id) (GC_{cname}_DATA[GC_RD8(&GC_{cname}_MAP[(id)])])")
         out.append("")
 
     n = LAST - FIRST + 1
