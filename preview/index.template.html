@@ -69,6 +69,16 @@ dl.stats dt { color: var(--muted); }
 dl.stats dd { margin: 0; text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .note { font-size: .8rem; color: var(--muted); line-height: 1.5; margin: 0; }
 label.check { display: flex; gap: 8px; align-items: center; font-size: .9rem; cursor: pointer; }
+.seg button.small { padding: 4px 9px; font-size: .82rem; }
+.seg input, .seg select, textarea {
+  font: inherit; font-size: .85rem; color: var(--ink); background: transparent;
+  border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; min-width: 0;
+}
+.seg input[type=number] { width: 5.5em; }
+textarea { width: 100%; box-sizing: border-box; height: 5.2em; font-family: var(--font-mono); font-size: .72rem; resize: vertical; }
+.panel details { border-top: 1px solid var(--line); padding-top: 12px; }
+.panel details > summary { cursor: pointer; font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); font-weight: 600; margin-bottom: 10px; }
+.panel details[open] { display: grid; gap: 22px; }
 .badge { display: inline-block; font-family: var(--font-mono); font-size: .72rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--ok); color: var(--ok); }
 </style>
 
@@ -93,13 +103,15 @@ label.check { display: flex; gap: 8px; align-items: center; font-size: .9rem; cu
         </div>
       </div>
       <div class="group">
-        <h2>Speed</h2>
+        <h2>Time scale</h2>
         <div class="seg" id="speed">
           <button id="speed-0" data-v="0" aria-pressed="false">Pause</button>
           <button id="speed-1" data-v="1" aria-pressed="true">1&times;</button>
-          <button id="speed-4" data-v="4" aria-pressed="false">4&times;</button>
-          <button id="speed-16" data-v="16" aria-pressed="false">16&times;</button>
+          <button id="speed-10" data-v="10" aria-pressed="false">10&times;</button>
+          <button id="speed-60" data-v="60" aria-pressed="false">60&times;</button>
+          <button id="speed-600" data-v="600" aria-pressed="false">600&times;</button>
         </div>
+        <p class="note">At 1&times; the clock follows this computer's time if the box below is ticked. Faster speeds run a simulated clock.</p>
       </div>
       <div class="group">
         <h2>Clock time</h2>
@@ -117,6 +129,92 @@ label.check { display: flex; gap: 8px; align-items: center; font-size: .9rem; cu
         </div>
         <p class="note">Matches the setting on the clock's status page. Higher darkens mid-tones.</p>
       </div>
+      <details id="debug" open>
+        <summary>Debug</summary>
+        <div class="group">
+          <h2>Day and season</h2>
+          <div class="seg" id="season">
+            <button class="small" data-v="0" aria-pressed="false">Spring</button>
+            <button class="small" data-v="1" aria-pressed="false">Summer</button>
+            <button class="small" data-v="2" aria-pressed="false">Autumn</button>
+            <button class="small" data-v="3" aria-pressed="false">Winter</button>
+          </div>
+          <div class="seg">
+            <input id="day-n" type="number" min="0" max="65535" value="0" aria-label="Game day (0 is the first day)">
+            <button class="small" id="day-go" type="button">Jump to day</button>
+            <button class="small" id="day-next" type="button">Next day</button>
+          </div>
+        </div>
+        <div class="group">
+          <h2>Weather</h2>
+          <div class="seg" id="weather">
+            <button class="small" data-v="0" aria-pressed="false">Clear</button>
+            <button class="small" data-v="1" aria-pressed="false">Cloudy</button>
+            <button class="small" data-v="2" aria-pressed="false">Rain</button>
+            <button class="small" data-v="3" aria-pressed="false">Storm</button>
+            <button class="small" data-v="4" aria-pressed="false">Fog</button>
+            <button class="small" data-v="5" aria-pressed="false">Snow</button>
+            <button class="small" data-v="6" aria-pressed="false">Windy</button>
+          </div>
+        </div>
+        <div class="group">
+          <h2>Festival</h2>
+          <div class="seg" id="festival">
+            <button class="small" data-v="0" type="button">Blossom Fair</button>
+            <button class="small" data-v="1" type="button">Lantern Night</button>
+            <button class="small" data-v="2" type="button">Harvest Feast</button>
+            <button class="small" data-v="3" type="button">Snow Lights</button>
+          </div>
+          <p class="note">Jumps to day 7 of that season at 17:00 (festivals run 16:00 to 22:00).</p>
+        </div>
+        <div class="group">
+          <h2>Coins, items, quests</h2>
+          <div class="seg">
+            <button class="small" id="coins-50" type="button">+50 coins</button>
+            <button class="small" id="coins-500" type="button">+500 coins</button>
+            <button class="small" id="items-all" type="button">+9 of each good</button>
+          </div>
+          <div class="seg">
+            <input id="quest-n" type="number" min="0" max="60" value="0" aria-label="Quest number">
+            <button class="small" id="quest-go" type="button">Start quest</button>
+            <button class="small" id="goal-buy" type="button">Buy goal</button>
+          </div>
+        </div>
+        <div class="group">
+          <h2>Info cards</h2>
+          <div class="seg" id="cards">
+            <button class="small" data-v="1" type="button">Clock</button>
+            <button class="small" data-v="2" type="button">Pack</button>
+            <button class="small" data-v="3" type="button">Quest</button>
+            <button class="small" data-v="4" type="button">Village</button>
+            <button class="small" data-v="0" type="button">Close</button>
+          </div>
+          <div class="seg">
+            <select id="card-period" aria-label="Card period">
+              <option value="0">Cards off</option>
+              <option value="1">Every 1 min</option>
+              <option value="2">Every 2 min</option>
+              <option value="10" selected>Every 10 min</option>
+            </select>
+            <label class="check"><input id="wifi-down" type="checkbox"> WiFi down</label>
+            <label class="check"><input id="clock-approx" type="checkbox"> Clock approximate</label>
+          </div>
+        </div>
+        <div class="group">
+          <h2>Save</h2>
+          <div class="seg">
+            <button class="small" id="save-export" type="button">Export save</button>
+            <button class="small" id="save-import" type="button">Import save</button>
+            <button class="small" id="save-restart" type="button">Simulate restart</button>
+          </div>
+          <textarea id="save-hex" spellcheck="false" aria-label="Save as hex" placeholder="Save as hex (192 bytes)"></textarea>
+          <p class="note" id="save-msg"></p>
+        </div>
+        <div class="group">
+          <h2>Live values</h2>
+          <dl class="stats" id="readout"></dl>
+        </div>
+      </details>
       <div class="group">
         <h2>Display bus</h2>
         <label class="check"><input id="show-dirty" type="checkbox"> Highlight strips sent this frame</label>
@@ -163,6 +261,11 @@ label.check { display: flex; gap: 8px; align-items: center; font-size: .9rem; cu
     setStatus(1, "GEEKQUEST.LOCAL");
     setStatus(2, "PREVIEW BUILD");
     setStatus(3, "");
+    startDay = null; lastDate = "";
+    ex.set_option(0, +$("card-period").value);
+    ex.set_net($("wifi-down").checked ? 1 : 0);
+    ex.clock_quality($("clock-approx").checked ? 1 : 0);
+    ex.set_depth(+$("depth").value);
   }
 
   function blit(strip) {
@@ -180,22 +283,36 @@ label.check { display: flex; gap: 8px; align-items: center; font-size: .9rem; cu
     }
   }
 
-  function clockMinutes() {
-    if ($("time-live").checked) {
-      const n = new Date();
-      return n.getHours() * 60 + n.getMinutes();
-    }
-    return +$("time").value;
+  // ---- clock: real time at 1x when ticked, otherwise a simulated clock that follows the time scale
+  let vmin = 600;                      // simulated minute of day (fractional)
+  function realMinutes() { const n = new Date(); return n.getHours() * 60 + n.getMinutes() + n.getSeconds() / 60; }
+  function useReal() { return $("time-live").checked && speed === 1; }
+  const pad2 = (n) => String(n).padStart(2, "0");
+
+  // gc_set_date: the date follows the game day, starting from today
+  const day0 = Date.now();
+  let startDay = null, lastDate = "";
+  function syncDate() {
+    const day = ex.query(Q.DAY);
+    if (startDay === null) startDay = day;
+    const d = new Date(day0 + (day - startDay) * 86400000);
+    const key = d.toDateString();
+    if (key !== lastDate) { lastDate = key; ex.set_date(d.getFullYear(), d.getMonth() + 1, d.getDate(), d.getDay()); }
   }
 
-  let fpsAcc = 0, fpsFrames = 0;
+  let fpsAcc = 0, fpsFrames = 0, roAcc = 0;
   function frame(now) {
     const dt = Math.min(250, now - last);
     last = now;
-    if (speed > 0) for (let i = 0; i < speed; i++) ex.tick(dt);
-    const m = clockMinutes();
+    if (speed > 0) {
+      const total = dt * speed, n = Math.min(80, Math.max(1, Math.ceil(total / 250)));
+      if (!useReal()) vmin = (vmin + total / 60000) % 1440;
+      for (let i = 0; i < n; i++) ex.tick(Math.min(250, total / n));
+    }
+    const m = Math.floor(useReal() ? realMinutes() : vmin) % 1440;
     ex.set_clock(Math.floor(m / 60), m % 60, 1);
-    $("time-label").textContent = String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+    $("time-label").textContent = pad2(Math.floor(m / 60)) + ":" + pad2(m % 60);
+    if (scene === 1) syncDate();
 
     const mask = ex.dirty();
     let n = 0;
@@ -215,6 +332,8 @@ label.check { display: flex; gap: 8px; align-items: center; font-size: .9rem; cu
       ex.set_fps(Math.round(est * 10));
       fpsAcc = 0; fpsFrames = 0;
     }
+    roAcc += dt;
+    if (roAcc > 400) { roAcc = 0; readout(); }
 
     ov.clearRect(0, 0, 240, 240);
     if ($("show-dirty").checked) {
@@ -227,6 +346,101 @@ label.check { display: flex; gap: 8px; align-items: center; font-size: .9rem; cu
     requestAnimationFrame(frame);
   }
 
+  // ---- debug panel (design 6.8): everything goes through gc_debug and gc_query
+  const Q = {};
+  ["COINS", "COIN_CAP", "STARS", "FUND", "EARNED_TOTAL", "SPENT_TOTAL", "DAY", "MINUTE", "SEASON", "WEATHER",
+   "FESTIVAL", "EVENT", "HERO_PRESENCE", "HERO_AREA", "HERO_ACT", "HERO_HEARTS", "HERO_TILE", "GOAL", "GOAL_PRICE",
+   "PROJECTS", "CHAPTER", "QUEST", "QUEST_STEP", "QUEST_COUNT", "TILL_LEFT", "ERRANDS_TODAY", "ACH_COUNT",
+   "SEEN_COUNT", "CARD", "ACTORS_VISIBLE"].forEach((k, i) => { Q[k] = i; });
+  const DBG = { ADD_COINS: 0, SET_DAY: 1, SET_WEATHER: 2, ADD_ITEM: 3, START_QUEST: 4, SHOW_CARD: 5, FORCE_ACT: 6, BUY_GOAL: 7, NEXT_DAY: 8 };
+  const NAMES = {
+    SEASON: ["spring", "summer", "autumn", "winter"],
+    WEATHER: ["clear", "cloudy", "rain", "storm", "fog", "snow", "windy"],
+    HERO_PRESENCE: ["none", "sprite", "door", "postcard", "curtain"],
+    CARD: ["none", "clock", "pack", "quest", "village"],
+    FESTIVAL: { "-1": "none", 0: "blossom", 1: "lantern", 2: "harvest", 3: "snow lights" },
+  };
+  const READ = ["DAY", "MINUTE", "SEASON", "WEATHER", "FESTIVAL", "EVENT", "COINS", "COIN_CAP", "STARS", "FUND",
+    "EARNED_TOTAL", "GOAL", "GOAL_PRICE", "PROJECTS", "CHAPTER", "QUEST", "QUEST_STEP", "QUEST_COUNT", "HERO_PRESENCE",
+    "HERO_AREA", "HERO_ACT", "HERO_HEARTS", "ACH_COUNT", "SEEN_COUNT", "ERRANDS_TODAY", "TILL_LEFT", "CARD", "ACTORS_VISIBLE"];
+  const ro = $("readout");
+  const roCells = {};
+  READ.forEach((k) => {
+    const dt = document.createElement("dt"), dd = document.createElement("dd");
+    dt.textContent = k.toLowerCase().replace(/_/g, " ");
+    ro.append(dt, dd);
+    roCells[k] = dd;
+  });
+  function pressed(group, v) {
+    document.querySelectorAll("#" + group + " button").forEach((b) => b.setAttribute("aria-pressed", +b.dataset.v === v ? "true" : "false"));
+  }
+  function readout() {
+    if (scene !== 1) return;
+    for (const k of READ) {
+      let v = ex.query(Q[k]);
+      if (k === "MINUTE") v = pad2(Math.floor(v / 60)) + ":" + pad2(v % 60);
+      else if (NAMES[k]) v = (NAMES[k][v] !== undefined ? NAMES[k][v] : v) + " (" + v + ")";
+      roCells[k].textContent = v;
+    }
+    pressed("season", ex.query(Q.SEASON));
+    pressed("weather", ex.query(Q.WEATHER));
+    if (document.activeElement !== $("day-n")) $("day-n").value = ex.query(Q.DAY);
+  }
+  const dbg = (cmd, arg) => { ex.debug(cmd, arg | 0); readout(); };
+  function dayBase() { return Math.floor(ex.query(Q.DAY) / 28) * 28; }
+  function setClockTo(min) { $("time-live").checked = false; vmin = min; $("time").value = min; }
+
+  function wireDebug() {
+    $("season").addEventListener("click", (e) => {
+      const b = e.target.closest("button"); if (!b) return;
+      dbg(DBG.SET_DAY, dayBase() + (+b.dataset.v) * 7 + ex.query(Q.DAY) % 7);
+    });
+    $("weather").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) dbg(DBG.SET_WEATHER, +b.dataset.v); });
+    $("festival").addEventListener("click", (e) => {
+      const b = e.target.closest("button"); if (!b) return;
+      dbg(DBG.SET_DAY, dayBase() + (+b.dataset.v) * 7 + 6);
+      setClockTo(17 * 60);
+    });
+    $("day-go").addEventListener("click", () => dbg(DBG.SET_DAY, Math.max(0, Math.min(65535, +$("day-n").value || 0))));
+    $("day-next").addEventListener("click", () => dbg(DBG.NEXT_DAY, 0));
+    $("coins-50").addEventListener("click", () => dbg(DBG.ADD_COINS, 50));
+    $("coins-500").addEventListener("click", () => dbg(DBG.ADD_COINS, 500));
+    $("items-all").addEventListener("click", () => { for (let i = 0; i <= 12; i++) ex.debug(DBG.ADD_ITEM, (i << 8) | 9); readout(); });
+    $("quest-go").addEventListener("click", () => dbg(DBG.START_QUEST, +$("quest-n").value || 0));
+    $("goal-buy").addEventListener("click", () => dbg(DBG.BUY_GOAL, 0));
+    $("cards").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) dbg(DBG.SHOW_CARD, +b.dataset.v); });
+    $("card-period").addEventListener("change", () => ex.set_option(0, +$("card-period").value));
+    $("wifi-down").addEventListener("change", () => ex.set_net($("wifi-down").checked ? 1 : 0));
+    $("clock-approx").addEventListener("change", () => ex.clock_quality($("clock-approx").checked ? 1 : 0));
+    $("save-export").addEventListener("click", doExport);
+    $("save-import").addEventListener("click", () => doImport($("save-hex").value));
+    $("save-restart").addEventListener("click", () => {
+      const hex = doExport();
+      start(1);
+      doImport(hex);
+    });
+  }
+  function saveMsg(t) { $("save-msg").textContent = t; }
+  function doExport() {
+    const len = ex.save_export();
+    if (!len) { saveMsg("Export failed (village scene only)."); return ""; }
+    const b = new Uint8Array(mem.buffer, ex.save_ptr(), len);
+    const hex = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+    $("save-hex").value = hex;
+    saveMsg("Exported " + len + " bytes.");
+    return hex;
+  }
+  function doImport(hex) {
+    hex = (hex || "").replace(/[^0-9a-fA-F]/g, "");
+    const n = hex.length >> 1;
+    if (n < 1 || n > 192) { saveMsg("Import rejected: expected 192 bytes, got " + n + "."); return; }
+    const b = new Uint8Array(mem.buffer, ex.save_ptr(), 192);
+    b.fill(0);
+    for (let i = 0; i < n; i++) b[i] = parseInt(hex.substr(i * 2, 2), 16);
+    saveMsg(ex.save_import(n) ? "Import accepted." : "Import rejected: bad magic, length or checksum. Nothing changed.");
+    readout();
+  }
+
   function seg(groupId, onPick) {
     const g = $(groupId);
     g.addEventListener("click", (e) => {
@@ -237,12 +451,14 @@ label.check { display: flex; gap: 8px; align-items: center; font-size: .9rem; cu
     });
   }
   seg("scene", (v) => start(v));
-  seg("speed", (v) => { speed = v; });
-  $("time").addEventListener("input", () => { $("time-live").checked = false; });
+  seg("speed", (v) => { if (v !== 1 && useReal()) vmin = realMinutes(); speed = v; });
+  $("time").addEventListener("input", () => { $("time-live").checked = false; vmin = +$("time").value; });
+  $("time-live").addEventListener("change", () => { if (!$("time-live").checked) vmin = realMinutes(); });
   $("depth").addEventListener("input", () => { $("depth-label").textContent = $("depth").value; ex.set_depth(+$("depth").value); });
 
   WebAssembly.instantiate(bytes, {}).then(({ instance }) => {
     ex = instance.exports; mem = ex.memory;
+    wireDebug();
     start(1);
     ex.set_depth(+$("depth").value);
     requestAnimationFrame(frame);

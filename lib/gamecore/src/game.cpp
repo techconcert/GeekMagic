@@ -4,6 +4,12 @@
 
 GqState G;
 
+// Chunk 2 / chunk 5 debug hooks (declared here because gq_mod.h is frozen).
+void ui_debug_show_card(int id);     // ui.cpp
+int  ui_card_id(void);               // ui.cpp
+// quest.cpp (chunk 5) provides the real one; this weak default keeps this tree linking until it lands.
+__attribute__((weak)) void quest_debug_start(int q) { (void)q; }
+
 static uint32_t s_play_ms;
 
 // ------------------------------------------------------------------ events
@@ -216,7 +222,7 @@ extern "C" int32_t gc_query(int key) {
     case GQ_Q_ERRANDS_TODAY: return s.errands_today;
     case GQ_Q_ACH_COUNT: return popcount8(s.ach, 4);
     case GQ_Q_SEEN_COUNT: return popcount8(s.seen, 8);
-    case GQ_Q_CARD: return 0;
+    case GQ_Q_CARD: return ui_card_id();
     case GQ_Q_ACTORS_VISIBLE: return world_actor_count();
     default: return 0;
   }
@@ -244,6 +250,8 @@ extern "C" void gc_debug(int cmd, int32_t arg) {
     case GQ_DBG_FORCE_ACT: hero_force_activity(arg); break;
     case GQ_DBG_BUY_GOAL: econ_buy_goal(); break;
     case GQ_DBG_NEXT_DAY: new_day(); break;
-    default: break;   // START_QUEST and SHOW_CARD arrive with chunks 5 and 2
+    case GQ_DBG_START_QUEST: quest_debug_start(arg); break;
+    case GQ_DBG_SHOW_CARD: ui_debug_show_card(arg); break;
+    default: break;
   }
 }
