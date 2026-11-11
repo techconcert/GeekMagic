@@ -33,29 +33,52 @@ file before uploading and the clock verifies it again before switching over.
 
 ## Recovery: how you never lose the ability to reflash
 
+Plain-words guide with checklists: [docs/RECOVERY.md](docs/RECOVERY.md).
+
 Every build has these, and CI refuses to produce a `.bin` without them
 (`tools/check_bin.py`):
 
 - **The update page starts first.** WiFi and the web server start before the
-  display or the game, so a game bug can't hide the update page.
+  display or the game, so a game bug can't hide the update page. Pages are
+  streamed from flash, so they work even when memory is low.
 - **Rescue hotspot.** If the clock isn't on your WiFi (and for the first 10
-  minutes after every boot), it opens its own network
-  `GEEKQUEST-XXXX`, password `GEEKQUEST`. Join it and open `http://192.168.4.1/`.
-  Any address you type redirects there.
-- **Crash-loop safe mode.** 3 crashes in a row and the clock boots with the game
-  turned off, showing SAFE MODE and the hotspot details. After 6 crashes it also
+  minutes after every boot, during which nothing can restart the clock by
+  itself), it opens its own network `GEEKQUEST-XXXX`, password `GEEKQUEST`.
+  Join it and open `http://192.168.4.1/`. Any address you type redirects there.
+- **Crash-loop safe mode.** 3 crashes in a row, or 5 crashes in total without
+  6 hours of uptime in between, and the clock boots with the game turned off,
+  showing SAFE MODE and the hotspot details. After 6 crashes in a row it also
   skips the display. WiFi and the update page still work. You can also choose
   "Restart in safe mode" on the status page.
+- **Saved game quarantine.** If the clock crashes repeatedly right after
+  loading a saved game, it starts a fresh game and leaves the stored one
+  alone until you choose to retry or discard it.
+- **Settings and game survive restarts and updates** (kept in RTC memory; lost
+  on a power cut). "Download backup" / "Restore backup" on the status page keep
+  a copy on your phone. Flash saving exists in the code but is compiled out
+  until approved (`GQ_FLASH_SAVE`).
 - **Size limit.** The ESP8266 keeps the running firmware while it receives the
   new one, both inside a 1 MB area. CI fails any build over 500 KB, so updates
   always fit, including going back to stock.
 - **Stock files are never touched.** The game uses the same flash layout as
   the stock firmware and never writes to its 3 MB file area or its settings
-  sector. Flashing `SDPro_V1.0.6_....bin` from the GeekQuest update page brings
-  back the original clock with its settings.
+  sector (CI checks the linker symbols and forbids the EEPROM, LittleFS and
+  SPIFFS code). Flashing `SDPro_V1.0.6_....bin` from the GeekQuest update page
+  brings back the original clock with its settings.
 - **Bad uploads don't install.** The image is checked (ESP8266 magic byte, 4 MB
   flash header, size) and fully verified before anything is replaced. A failed
-  or interrupted upload leaves the current firmware running.
+  or interrupted upload leaves the current firmware running. The update page
+  also shows the file's CRC32; the clock checks CRC, size and the presence of
+  the update page itself, and enforces that when built with `GQ_STRICT_UPLOAD=1`
+  (off until approved).
+- **Approval switches** in `platformio.ini`, all `0`: `GQ_FLASH_SAVE`,
+  `GQ_AUTO_RESTART`, `GQ_STRICT_UPLOAD`. CI also builds `quest` with
+  `GQ_FLASH_SAVE=1` (gates only, never published).
+
+CI gates for this layer: `tools/lint_safety.py` (source rules),
+`tools/check_bin_selftest.py`, `tools/check_bin.py` on every `.bin`, a size
+report, and a guard that requires a `RECOVERY-CHANGE:` line in the commit and a
+new `GQ_RECOVERY_REV` whenever a recovery file changes.
 
 What this cannot protect against: a power cut in the few seconds while the
 bootloader copies a verified image into place (very rare), and hardware faults.
@@ -87,7 +110,8 @@ PNGs.
 firmware/        ESP8266 entry, ST7789 driver, recovery layer (safety.cpp)
 lib/gamecore/    portable game core (no heap, no libc), used by firmware and preview
 assets/src/      editable PNG sheets
-tools/           converters, version stamp, .bin safety check
+tools/           converters, version stamp, .bin safety check, source lint, CI guards
+docs/            design, recovery guide for the owner
 preview/         browser preview (WebAssembly)
 test/            host smoke test
 ```
