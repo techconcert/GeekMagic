@@ -36,7 +36,7 @@ R2 removed the game save/backup/restore system. The game is **not saved anywhere
 | Restart button, update, crash, watchdog, automatic restart | Kept (stored in the clock's short-term memory). | Starts again on day 1. |
 | Unplugging the clock | Back to defaults. | Starts again on day 1. |
 
-The status page also shows one line **Save sector 0x3FA000: blank** (or "in use by something else", with its first 16 bytes). That is a read-only look at a small flash area that a later release may use to keep the game across power cuts. R2 never writes or erases flash by itself; the only flash writing is the firmware update through the update page.
+The status page also shows read-only lines about two flash areas: **Stock data sector 0x3FA000** (known to hold the stock firmware's own data, never to be written) and **Spare sector 0xFF000** (blank, or in use with its first 16 bytes, plus where the running image ends). A later release may use the spare sector to keep settings and the game across power cuts, only after the owner has seen it blank on the real clock and approved. R2 never writes or erases flash by itself; the only flash writing is the firmware update through the update page.
 
 ## Switches
 
@@ -72,7 +72,7 @@ For the recovery version (R1) in addition:
 8. The status page has the **Network** and **Health** boxes. Open `/info`: one line of JSON you can paste into a bug report.
 9. Choose a random file (not firmware) on the update page: you get a warning and the clock keeps running. (With the strict checks off the upload would still be accepted if you pressed the button, so do not.)
 10. Choose the original `SDPro` file but **do not press upload**. Write down the CRC32 the page shows and send it to the maintainer (it lets the clock recognise the original firmware exactly).
-11. Write down the **Save sector 0x3FA000** line on the status page (blank, or in use by something else with its first bytes) and send it to the maintainer: it decides whether a later release may save the game there.
+11. Write down the **Spare sector 0xFF000** line on the status page (blank, or in use with its first bytes, and the 'image ends at' text) and send it to the maintainer: it decides whether a later release may save settings there.
 12. Watch the bottom band for a minute: it alternates between the hero's state (for example GOING TO EAT, QUEST: CAVE, CHOPPING), the IP address and the uptime.
 
 For the content version (R2) in addition: the hero is on screen or clearly marked at all times; after a week at least 3 goals bought, the season changed once, and the crash counter has not gone up.

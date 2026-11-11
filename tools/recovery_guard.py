@@ -14,7 +14,7 @@ import subprocess
 import sys
 
 CONTRACT_FILES = [
-    "firmware/safety.cpp", "firmware/safety.h", "firmware/netwatch.*", "firmware/prefs.*", "tools/pio_slim.py", "firmware/main.cpp",
+    "firmware/safety.cpp", "firmware/safety.h", "firmware/netwatch.*", "firmware/prefs.*", "firmware/webout.h", "firmware/config.*", "firmware/wxnet.*", "firmware/nightmode.*", "tools/pio_slim.py", "firmware/main.cpp",
     "platformio.ini", "tools/check_bin.py", "tools/pio_post.py", "tools/lint_safety.py", ".github/workflows/build.yml",
 ]
 

@@ -64,7 +64,7 @@ Every build contains, and CI refuses to produce a `.bin` without (`tools/check_b
   back.
 - **The game is not saved.** After any restart or power cut the game starts on day 1. Only the
   settings (time zone, brightness, colour depth, card period) are kept in RTC memory across
-  restarts and updates. The status page reports whether flash sector 0x3FA000 is blank (read only):
+  restarts and updates. The status page reports, read only, what flash sectors 0x3FA000 (stock data) and 0xFF000 (spare) contain:
   a later release may use it.
 
 Gates: `tools/lint_safety.py`, `tools/check_bin_selftest.py`, `tools/check_bin.py` on every `.bin`,
