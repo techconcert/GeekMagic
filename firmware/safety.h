@@ -35,6 +35,13 @@ void stage(uint8_t n);
 // Restart in a way the crash counter does not count.
 void plannedRestart(bool intoSafeMode = false);
 
+// RECOVERY-CHANGE (0B): first 10 minutes of uptime (latched; never true again).
+bool golden();
+
+// RECOVERY-CHANGE (0B): hotspot control, used by netwatch only.
+void startAP();
+void stopAP();
+
 // Wall clock from NTP. Returns false until synced.
 bool localTime(int& hour, int& minute);
 
