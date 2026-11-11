@@ -1,0 +1,107 @@
+# PIP, the child. Voice: excited, asks questions, frogs, wants to be a hero.
+# Running jokes: GREG the frog (leaf hat, always escaping), SWORD 2 (a stick), "WHY?".
+# Counts: 20 scripts, 55 lines = 8 of 2 turns, 9 of 3, 3 of 4. See content/talk/mira.txt for the rules.
+
+# ---------------------------------------------------------------- ANY (3)
+@ ANY
+N: HAVE YOU SEEN GREG?|HE'S A FROG. GREEN.
+H: THAT NARROWS IT|DOWN. TO THE GRASS.
+N: HE WEARS A LEAF|HAT! FOR STYLE!
+
+@ ANY
+H: WHAT ARE YOU|DOING, {N}?
+N: HERO POSES! HYAA!|LIKE YOU, BUT TINY!
+
+@ ANY
+N: WHY IS THE SKY UP?|WHY NOT DOWN?
+H: THEN WE'D LIVE|UNDER IT. SO HEAVY!
+
+# ---------------------------------------------------------------- TIME (2)
+@ TIME MORNING
+H: UP SO EARLY, {N}?
+N: FROGS SING AT DAWN!|I WOKE UP. RIBBIT!
+
+@ TIME LATE
+N: PSST! IT'S SO LATE.|THE MOON IS UP TOO.
+H: THEN THE MOON CAN|WALK YOU HOME.
+N: IT FOLLOWS ME HOME!|GOOD MOON!
+
+# ---------------------------------------------------------------- WEATHER AND TEMPERATURE (3)
+@ WX RAIN
+H: IT'S RAINING, {N}.|GO HOME, STAY DRY!
+N: BUT THE FROGS ARE|OUT! IT'S A PARTY!
+H: THEN WEAR A LEAF|HAT LIKE GREG'S.
+
+@ WX SNOW
+N: IT SNOWED! GREG IS|A SNOW FROG NOW!
+H: GREG IS A POPSICLE.|BRING HIM IN, {N}!
+
+@ TEMP HOT
+N: {T}! IT IS SO HOT|MY FROG IS MELTING!
+H: FROGS DON'T MELT.|GIVE HIM WATER!
+N: HE'S IN THE WELL!|HE SAYS THANK YOU.
+
+# ---------------------------------------------------------------- SEASON (2)
+@ SEASON SPRING
+H: IT'S {S}! WHAT|DO YOU LIKE MOST?
+N: TADPOLES! SO MANY!|THEY'RE ALL GREG!
+H: THEY CAN'T ALL BE|GREG, {N}.
+N: MAYBE! GREG HAS A|HUGE FAMILY!
+
+@ SEASON WINTER
+N: MY BREATH IS SMOKE!|I'M A DRAGON!
+H: THEN WARM MY SWORD.|IT'S FROZEN SOLID.
+
+# ---------------------------------------------------------------- FESTIVAL (1)
+@ FEST RUNNING
+H: HAVING FUN AT THE|FESTIVAL, {N}?
+N: YES! I ATE 3 CAKES|AND ONE LANTERN!
+H: A LANTERN?! YOU ATE|A LANTERN, {N}?
+N: ONLY THE PAPER! IT|WAS A BIT SWEET.
+
+# ---------------------------------------------------------------- WHAT THE HERO JUST DID (3)
+@ DID FOUGHT
+N: I SAW YOU FIGHT!|IT WAS SO BIG!
+H: IT WAS MEDIUM. BUT|I LOOKED GREAT!
+N: ME TOO SOON! I HAVE|SWORD 2, A STICK.
+
+@ DID SLEPT
+H: I SLEPT SO WELL.|I DREAMT OF FROGS!
+N: DID GREG HAVE HIS|LEAF HAT ON?
+
+@ DID FISHED
+N: ANY FROGS WHEN YOU|WENT FISHING?
+H: NO FROGS. JUST A|FISH. IT WAS ANGRY.
+N: FISH ARE ANGRY.|FROGS ALWAYS SMILE.
+
+# ---------------------------------------------------------------- QUEST AND CHAPTER (2)
+@ QUEST NONE
+N: ADVENTURE TODAY?|CAN I COME TOO?
+H: ONLY IF YOU STAY|BEHIND ME, {N}.
+
+@ QUEST STORY
+N: BRAM SAYS YOU WILL|FIX THE BELL!
+H: I'M TRYING! IT IS|A VERY HEAVY BELL.
+N: WHEN IT RINGS, CAN|I PULL THE ROPE?
+H: DEAL. YOU PULL.|I'LL TAKE THE BOWS.
+
+# ---------------------------------------------------------------- FRIENDSHIP (3)
+@ FRIEND 1
+N: ARE YOU REALLY A|HERO? PROVE IT!
+H: LOOK AT THIS SWORD.|SHINY, ISN'T IT?
+N: WOW! SO SHINY! YOU|ARE A HERO! RIBBIT!
+
+@ FRIEND 2
+N: I TOLD GREG ABOUT|YOU. HE LIKES YOU.
+H: HE DOES? WHAT DID|HE SAY?
+N: RIBBIT. THAT MEANS|GOOD, YOU KNOW.
+
+@ FRIEND 3
+N: I WILL BE A HERO!|JUST LIKE YOU!
+H: BE BETTER. BE KIND.|AND CARRY SNACKS.
+N: KIND AND SNACKS.|I'LL WRITE IT DOWN.
+
+# ---------------------------------------------------------------- GOAL (1)
+@ GOAL TOOL
+H: I'M SAVING FOR|{G}, {N}!
+N: CAN IT CATCH FROGS?|GENTLY, I MEAN.
