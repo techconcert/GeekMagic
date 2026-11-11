@@ -1,0 +1,108 @@
+# TESS, the smith and builder. Voice: practical, measures everything, proud of every project, names her small things
+# (the nails, the drips in the roof). Running jokes: BOB the nail, "measure twice", the hero's sword is 31 inches.
+# Counts: 20 scripts, 55 lines = 8 of 2 turns, 9 of 3, 3 of 4; hero opens at least 6.
+# Run:  python3 tools/gen_talk.py --check content/talk/tess.txt
+
+# ---------------------------------------------------------------- ANY (3)
+@ ANY
+N: MEASURE TWICE,|CUT ONCE. ALWAYS.
+H: AND IF I MEASURE|ZERO TIMES?
+N: THEN YOU'RE A HERO.|THEY NEVER MEASURE.
+
+@ ANY
+H: IS THAT A NEW|HAMMER, {N}?
+N: SAME HAMMER. NEW|HANDLE. NEW HEAD.
+
+@ ANY
+N: HOLD STILL. I AM|MEASURING YOU.
+H: FOR WHAT? A STATUE?
+N: FOR A DOOR. YOU'RE|ALWAYS IN THE WAY.
+H: I ADMIRE YOUR WORK.|FROM VERY CLOSE.
+
+# ---------------------------------------------------------------- TIME (2)
+@ TIME MORNING
+N: FIRST NAIL TODAY.|I NAMED IT BOB.
+H: HELLO BOB. DON'T|BEND TODAY, OKAY?
+N: BOB HAS NEVER BENT.|HIS BROTHERS DID.
+
+@ TIME LATE
+H: {N}, WHY ARE YOU|STILL HAMMERING?
+N: THE WOOD DOES NOT|KNOW THE TIME.
+
+# ---------------------------------------------------------------- WEATHER AND TEMPERATURE (3)
+@ WX RAIN
+N: RAIN! IT TESTS|EVERY ROOF IN TOWN.
+H: HOW IS YOUR ROOF|DOING, {N}?
+N: THREE DRIPS. EACH|GETS A BUCKET.
+
+@ TEMP COLD
+H: {T} OUT! CAN I|SIT BY YOUR FORGE?
+N: SIT. {T}: IRON|AND I GET BRITTLE.
+
+@ TEMP HOT
+N: {T}. THE FORGE IS|BAKING ME, TOO.
+H: I'LL FETCH WATER!|STAY RIGHT THERE.
+N: NOT FOR ME. FOR THE|IRON. I AM TOUGH.
+
+# ---------------------------------------------------------------- SEASON (2)
+@ SEASON SPRING
+N: SPRING MEANS BUILD|SEASON. I LOVE IT.
+H: WHAT ARE YOU|BUILDING FIRST?
+N: A FENCE, TO PROTECT|LAST YEAR'S FENCE.
+
+@ SEASON AUTUMN
+H: LEAVES ARE ALL OVER|YOUR ROOF, {N}!
+N: FREE INSULATION.|I CALL IT DESIGN.
+
+# ---------------------------------------------------------------- FESTIVAL (1)
+@ FEST RUNNING
+N: I BUILT THE STAGE.|NOBODY LOOKS AT IT.
+H: I'M LOOKING! NICE|PLANKS. VERY LEVEL.
+
+# ---------------------------------------------------------------- DID (3)
+@ DID BUILT
+H: THE PROJECT IS|DONE! LOOK AT IT!
+N: I AM LOOKING. THE|LEFT SIDE: 1MM LOW.
+H: ONLY YOU CAN SEE|THAT, {N}. TRULY.
+N: THAT'S WHY I'M|THE ONE WHO BUILDS.
+
+@ DID MINED
+N: ORE DUST ON YOUR|BOOTS. GOOD SIGN.
+H: A SIGN THAT I NEED|A BIGGER BAG?
+N: A SIGN YOU DUG, AND|DID NOT NAP.
+
+@ DID CHOPPED
+H: I CHOPPED LOTS OF|WOOD FOR YOU, {N}!
+N: DRY? STRAIGHT? NOT|FULL OF BEETLES?
+H: THEY WERE POLITE|BEETLES. THEY LEFT.
+
+# ---------------------------------------------------------------- QUEST (2)
+@ QUEST NONE
+N: NO ERRANDS? THEN|HOLD THIS BOARD.
+H: DEAL. IF IT FALLS,|BLAME THE BOARD.
+
+@ QUEST STORY
+N: THE TOWER NEEDS A|BIG NEW BEAM.
+H: I'M ON THE SHARDS.|YOU DO THE BEAM.
+N: DEAL. I'LL MAKE IT|HANG STRAIGHT.
+
+# ---------------------------------------------------------------- FRIEND (3)
+@ FRIEND 1
+N: HANDS OFF MY TOOLS.|THEY'RE MY FRIENDS.
+H: I'LL JUST WAVE AT|THEM. FROM HERE.
+
+@ FRIEND 2
+H: CAN YOU MEASURE|MY SWORD, {N}?
+N: I DID, WHILE YOU|SLEPT. 31 INCHES.
+H: IT FEELS LONGER.|CALL IT 33.
+N: I MEASURE. I DON'T|FLATTER. 31.
+
+@ FRIEND 3
+N: I MADE A NAIL AND|NAMED IT AFTER YOU.
+H: A NAIL? HONORED!|IS IT A GOOD ONE?
+N: STRAIGHTEST EVER.|BOB IS JEALOUS.
+
+# ---------------------------------------------------------------- GOAL (1)
+@ GOAL PROJECT
+H: WILL {G} BE|READY SOON, {N}?
+N: WHEN COINS ARRIVE,|NAILS FOLLOW.

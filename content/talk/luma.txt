@@ -1,0 +1,108 @@
+# LUMA, the herbalist. Voice: calm, mysterious, the forest speaks to her and gossips through her.
+# Running jokes: the oak and the moss tell her everything, the forest is as hungry as the hero, time is measured in tea.
+# Counts: 20 scripts, 55 lines = 8 of 2 turns, 9 of 3, 3 of 4; hero opens at least 6.
+# Run:  python3 tools/gen_talk.py --check content/talk/luma.txt
+
+# ---------------------------------------------------------------- ANY (3)
+@ ANY
+N: THE OAK SAYS YOU|WALK VERY LOUDLY.
+H: I'M STEALTHY! WHAT|ELSE DID IT SAY?
+N: THAT YOU HUM TO|YOURSELF. LOVELY.
+
+@ ANY
+H: WHAT'S IN THE POT,|{N}? SMELLS GREEN.
+N: A LITTLE DAWN AND A|LOT OF MINT.
+
+@ ANY
+H: CAN YOU READ MY|FUTURE, {N}?
+N: YOU WILL BE HUNGRY|BEFORE NIGHT.
+H: AMAZING! HOW DO|YOU KNOW THAT?
+N: THE FOREST TOLD ME.|IT IS ALSO HUNGRY.
+
+# ---------------------------------------------------------------- TIME (2)
+@ TIME MORNING
+N: DEW IS THE FOREST'S|FIRST WORD.
+H: WHAT'S ITS SECOND|WORD, {N}?
+N: 'BREAKFAST.' IT IS|AS HUNGRY AS YOU.
+
+@ TIME LATE
+H: {N}, WHY ARE YOU|STILL AWAKE?
+N: NIGHT HERBS BLOOM|FOR THE PATIENT.
+
+# ---------------------------------------------------------------- WEATHER AND TEMPERATURE (3)
+@ WX FOG
+N: FOG. THE FOREST IS|HOLDING ITS BREATH.
+H: HOW LONG UNTIL IT|BREATHES OUT?
+N: ABOUT TWO CUPS OF|TEA. DRINK SLOWLY.
+
+@ TEMP COLD
+N: {T}. THE ROOTS ARE|ASLEEP. WHISPER.
+H: I'LL WHISPER. AND|SHIVER QUIETLY.
+
+@ TEMP HOT
+H: {T}! THE FOREST IS|SWEATING, {N}!
+N: TREES SWEAT SHADE.|COME SIT IN IT.
+H: BEST SWEAT EVER!|I'LL SIT AWHILE.
+
+# ---------------------------------------------------------------- SEASON (2)
+@ SEASON SPRING
+N: THE SEEDS ARE|WAKING UP, GRUMPY.
+H: I'M GRUMPY IN THE|MORNING TOO!
+
+@ SEASON WINTER
+H: NOTHING GROWS NOW,|{N}. ISN'T IT SAD?
+N: THEY SLEEP. THEY|DREAM OF GREEN.
+H: I DREAM OF STEW.|GREEN STEW, THEN.
+
+# ---------------------------------------------------------------- FESTIVAL (1)
+@ FEST RUNNING
+N: THE FOREST HEARS|THE MUSIC TONIGHT.
+H: DOES IT LIKE IT?
+N: THE OLD TREES TAP|ROOTS. VERY SLOWLY.
+H: THEY'RE DANCING! A|VERY SLOW FESTIVAL.
+
+# ---------------------------------------------------------------- DID (3)
+@ DID FORAGED
+H: I PICKED THESE|MUSHROOMS. TASTY?
+N: THE RED ONES SING.|DON'T EAT SINGERS.
+H: NONE SANG. SO I'M|EATING THEM ALL!
+
+@ DID FOUGHT
+N: THE FOREST FELT YOU|FIGHT. SLIMES TOO.
+H: THEY STARTED IT!|I WAS VERY POLITE.
+N: THE FOREST DOES NOT|TAKE SIDES.
+
+@ DID FAINTED
+H: I FAINTED! IT WAS|ALL VERY DARK.
+N: MOSS CAUGHT YOU.|SIT, DRINK THIS.
+
+# ---------------------------------------------------------------- QUEST (2)
+@ QUEST NONE
+N: NO ERRANDS TODAY.|FOREST SAYS: WALK.
+H: WALK WHERE? I LIKE|DIRECTIONS, {N}.
+N: ANYWHERE. IT WILL|FIND YOU.
+
+@ QUEST STORY
+H: CAN YOU FEEL THE|SHARDS, {N}?
+N: ONE IS SINGING. THE|OTHERS ARE SHY.
+
+# ---------------------------------------------------------------- FRIEND (3)
+@ FRIEND 1
+N: MOSS NOTICED YOU|WIPED YOUR BOOTS.
+H: THE MOSS NOTICES?|I'LL WIPE TWICE.
+
+@ FRIEND 2
+H: {N}, THE FOREST|FEELS LIKE HOME.
+N: IT SAID THE SAME.|YOU SMELL OF RAIN.
+H: GOOD RAIN OR BAD|RAIN? I'M ASKING.
+N: THE KIND THAT MAKES|THINGS GROW.
+
+@ FRIEND 3
+N: I SAVED YOU A SEAT|BY THE OLD FERN.
+H: A FERN SEAT? I'LL|SIT THERE FOREVER.
+N: IT ASKED ME FIRST.|IT LIKES YOU.
+
+# ---------------------------------------------------------------- GOAL (1)
+@ GOAL TOOL
+N: THE WIND SAYS YOU|WANT {G}.
+H: THE WIND GOSSIPS,|BUT IT'S CORRECT.
