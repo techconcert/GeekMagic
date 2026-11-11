@@ -87,7 +87,8 @@ jobs:
   firmware:
     name: Firmware (.bin with recovery checks)
     runs-on: ubuntu-24.04
-    needs: core
+    # runs in parallel with the host tests so compile errors show up in minutes; publishing still waits for both
+    needs: guard
     steps:
       - uses: actions/checkout@v4
         with:
