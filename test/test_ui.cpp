@@ -434,8 +434,13 @@ static void test_hud_weather() {
   // changing only the number moves pixels only inside its three cells 117..153
   hud_render(hprev, GQ_W_CLOUDY, 70, 0);
   for (int t = -99; t <= 99; t++) {
-    hud_render(hcur, GQ_W_CLOUDY, t * 10, 0);
-    int hi, lo = hud_diff(hprev, hcur, &hi);
+    int hi = 0, lo = 999;
+    for (int tries = 0; tries < 4; tries++) {      // two renders are a tick apart: a coin or the tint may change in between
+      hud_render(hprev, GQ_W_CLOUDY, 70, 0);
+      hud_render(hcur, GQ_W_CLOUDY, t * 10, 0);
+      lo = hud_diff(hprev, hcur, &hi);
+      if (lo == 999 || (lo >= 117 && hi <= 153)) break;
+    }
     if (lo != 999) CHECK(lo >= 117 && hi <= 153);
   }
   hud_render(hprev, GQ_W_CLOUDY, 999, 0);
@@ -446,11 +451,13 @@ static void test_hud_weather() {
   hud_render(hcur, GQ_W_CLEAR, 230, GC_WXF_FAHRENHEIT);
   { int hi, lo = hud_diff(hprev, hcur, &hi); CHECK(lo >= 117 && hi <= 158); }
   // temperature, unit, season block and clock are all present, with gaps 159..162 and 174..177 between them
+  hud_render(hbase, GC_WX_NONE, 0, 0);               // fresh base: time moves between renders in the integrated game
   hud_render(hcur, GQ_W_CLEAR, 230, 0);
   CHECK(hud_ink(hcur, hbase, 117, 153) > 20);
   CHECK(hud_ink(hcur, hbase, 154, 158) > 8);
   CHECK(hud_ink(hcur, hbase, 159, 162) == 0);
   CHECK(hud_ink(hcur, hbase, 174, 177) == 0);
+  hud_render(hbase, GC_WX_NONE, 0, 0);
   hud_render(hprev, GC_WX_NONE, 0, 0);
   CHECK(hud_ink(hprev, hbase, 0, 239) == 0);
   // stale is drawn grey, fresh white: same shape, different colour, only in the temperature area
