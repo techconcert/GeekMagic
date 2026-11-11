@@ -405,8 +405,48 @@ static void n11() {
   printf("N11 ok\n");
 }
 
+// ---------------------------------------------------------------- N12 (chunk 1: restart counter kept in RTC)
+// safety.cpp keeps restarts_done and ever_connected in RTC: +1 per WiFi restart, back to 0 once a link has held,
+// ever_connected survives restarts. The ladder must follow 6 h, 12 h, 24 h, 24 h and start over after a good link.
+static uint32_t firstRestartH(Sim& s, uint32_t maxH) {
+  for (uint32_t sec = 0; sec < maxH * 3600; sec++)
+    if (s.step() & NA_RESTART) return (sec + 1 + 3599) / 3600;
+  return 0;
+}
+static void n12() {
+  g_test = "N12";
+  const uint32_t want[5] = {6, 12, 24, 24, 24};
+  for (uint8_t done = 0; done < 5; done++) {
+    Sim s(1000u + done, 20 + done, done);
+    s.in.sta_up = 0;
+    CHECK(firstRestartH(s, 30) == want[done]);
+  }
+  // a good link resets the counter (RTC value 0): the next outage restarts at 6 h again
+  Sim g(5000, 30, 0);
+  g.in.sta_up = 0;
+  CHECK(firstRestartH(g, 30) == 6);
+  g.reset(g.in.now_ms, 31, 1);
+  g.in.sta_up = 1;
+  g.runHealthy(300);                           // link held: safety::noteLinkGood() would store 0
+  g.reset(g.in.now_ms, 32, 0);
+  g.in.sta_up = 0;
+  CHECK(firstRestartH(g, 30) == 6);
+  // never connected since power-on: only the 24 h rule may restart (nothing earlier, even with restarts_done == 0)
+  Sim n(7000, 40, 0);
+  n.in.sta_up = 0;
+  n.in.ever_connected = 0;
+  CHECK(firstRestartH(n, 30) == 24);
+  // golden window: no restart in the first 10 minutes whatever the counters say
+  for (uint8_t done = 0; done < 4; done++) {
+    Sim w(0xFFFFFF00u, 50 + done, done);
+    w.in.sta_up = 0;
+    for (uint32_t sec = 0; sec < 600; sec++) CHECK(!(w.step() & NA_RESTART));
+  }
+  printf("N12 ok\n");
+}
+
 int main() {
-  n1(); n2(); n3(); n4(); n5(); n6(); n7(); n8(); n9(); n10(); n11();
+  n1(); n2(); n3(); n4(); n5(); n6(); n7(); n8(); n9(); n10(); n11(); n12();
   printf("test_net: all passed\n");
   return 0;
 }

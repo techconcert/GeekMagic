@@ -343,7 +343,7 @@ static int halErase(void*) {
 static const JournalHal HAL = {halRead, halWrite, halErase, nullptr};
 
 static bool layoutCheck() {
-  return ((uint32_t)&_FS_end - 0x40200000UL) / 4096 == 0x3FA && ((uint32_t)&_EEPROM_start - 0x40200000UL) / 4096 == 0x3FB &&
+  return ((uint32_t)(uintptr_t)&_FS_end - 0x40200000UL) / 4096 == 0x3FA && ((uint32_t)(uintptr_t)&_EEPROM_start - 0x40200000UL) / 4096 == 0x3FB &&
          ESP.getFlashChipRealSize() == 4UL * 1024 * 1024;
 }
 
