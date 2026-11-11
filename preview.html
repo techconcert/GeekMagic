@@ -181,6 +181,21 @@ textarea { width: 100%; box-sizing: border-box; height: 5.2em; font-family: var(
           </div>
         </div>
         <div class="group">
+          <h2>Send the hero on a mission</h2>
+          <div class="seg">
+            <select id="act-n" aria-label="Mission">
+              <option value="2">Chop wood</option><option value="3">Fish at the pond</option><option value="4">Forage</option>
+              <option value="5">Mine (cave)</option><option value="6">Garden</option><option value="7">Sell goods (shop)</option>
+              <option value="8">Buy something (shop)</option><option value="9">Eat</option><option value="10">Sit and rest</option>
+              <option value="11">Chat</option><option value="12">Give a gift</option><option value="13">Quest</option>
+              <option value="14">Fight</option><option value="15">Visit the cat</option><option value="16">Go to bed</option>
+              <option value="1">Wander</option>
+            </select>
+            <button class="small" id="act-go" type="button">Go now</button>
+          </div>
+          <p class="note">Preview only. It plays the real scene (cave, shop, forest and so on) without changing the clock firmware.</p>
+        </div>
+        <div class="group">
           <h2>Info cards</h2>
           <div class="seg" id="cards">
             <button class="small" data-v="1" type="button">Clock</button>
@@ -447,6 +462,7 @@ textarea { width: 100%; box-sizing: border-box; height: 5.2em; font-family: var(
     $("coins-500").addEventListener("click", () => dbg(DBG.ADD_COINS, 500));
     $("items-all").addEventListener("click", () => { for (let i = 0; i <= 12; i++) ex.debug(DBG.ADD_ITEM, (i << 8) | 9); readout(); });
     $("quest-go").addEventListener("click", () => dbg(DBG.START_QUEST, +$("quest-n").value || 0));
+    $("act-go").addEventListener("click", () => dbg(DBG.FORCE_ACT, +$("act-n").value));
     $("goal-buy").addEventListener("click", () => dbg(DBG.BUY_GOAL, 0));
     $("cards").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) dbg(DBG.SHOW_CARD, +b.dataset.v); });
     $("card-period").addEventListener("change", () => ex.set_option(0, +$("card-period").value));
