@@ -33,6 +33,10 @@ def make(size=300 * KB, magic=0xE9, mode=0x02, nibble=4, drop=None, marker_copie
             continue
         body[pos:pos + len(needle)] = needle
         pos += len(needle) + 8
+    cfg = check_bin.CONFIG_PAGE_STRING[0]   # the R3 settings page route is part of a good image once it is required
+    if check_bin.REQUIRE_CONFIG_PAGE and drop != cfg:
+        body[pos:pos + len(cfg)] = cfg
+        pos += len(cfg) + 8
     if extra:
         body[pos:pos + len(extra)] = extra
     return bytes(body)
@@ -108,8 +112,8 @@ try:
     check_bin.REQUIRE_CONFIG_PAGE = False
     expect("/config not required while REQUIRE_CONFIG_PAGE is False", True, verdict(make()))
     check_bin.REQUIRE_CONFIG_PAGE = True
-    expect("/config required once the settings page exists: missing", False, verdict(make()))
-    expect("/config required once the settings page exists: present", True, verdict(make(extra=b"/config")))
+    expect("/config required once the settings page exists: missing", False, verdict(make(drop=b"/config")))
+    expect("/config required once the settings page exists: present", True, verdict(make()))
 finally:
     check_bin.REQUIRE_CONFIG_PAGE = old_req
 ok, text = verdict(make(size=445 * KB))

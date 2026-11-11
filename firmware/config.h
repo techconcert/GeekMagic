@@ -7,7 +7,7 @@
 // P1 sets this to 1 when /config exists: the status page then shows the link (and tools/check_bin.py REQUIRE_CONFIG_PAGE
 // must be switched to True in the same commit).
 #ifndef GQ_HAVE_CONFIG_PAGE
-#define GQ_HAVE_CONFIG_PAGE 0
+#define GQ_HAVE_CONFIG_PAGE 1
 #endif
 
 namespace config {

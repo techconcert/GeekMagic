@@ -71,7 +71,7 @@ FORBIDDEN_SYMBOLS = re.compile(
 )
 # R3 REQUIRED string for the settings page. Chunk P1 switches this to True in the commit that adds /config (together with
 # GQ_HAVE_CONFIG_PAGE in firmware/config.h); until then the stub build has no such page.
-REQUIRE_CONFIG_PAGE = False
+REQUIRE_CONFIG_PAGE = True
 # Code of the display-test scene (lib/gamecore/src/gamecore.cpp, only compiled with -DGQ_TEST_SCENE=1 in env:test).
 # The quest build must not contain it. Static C++ names appear mangled (_ZL<len><name>..., _ZZL<len><name>... for
 # local statics); the compiler often inlines the functions, so their tables are what remains.
