@@ -17,6 +17,13 @@ int  cal_minute(void);  int cal_is_night(void);  // night = 22:00..05:59
 int  cal_season(void);  int cal_day_of_season(void);  int cal_year(void);
 int  cal_weather(void); int cal_festival(void);  /* -1 or 0..3, only between 16:00 and 22:00 */  int cal_event(void);
 void cal_look(GqLook* out);                      // palette inputs for this minute
+// R3 live weather (docs/DESIGN-R3.md 2.7). Declared by R3-0C with weak stubs in game.cpp that keep today's
+// behaviour (nothing live); chunk W2 defines the real ones in calendar.cpp (a strong definition replaces the stub).
+// The input is G.live_wx1 / G.live_temp10 / G.live_flags (set by gc_set_live_weather).
+int  cal_live(void);                             // 1 while live data is in use
+int  cal_weather_shown(void);                    // what the screen shows: live state if any, else simulated
+int  cal_temp(int* out, int* is_f);              // 1 and whole degrees in the display unit (round half away from zero); 0 if none
+int  cal_temp_c(int* out);                       // 1 and whole degrees Celsius, for dialogue conditions
 void weather_tick(uint32_t dt);                  // marks strips dirty within the budget of 6.1
 void weather_render(int strip, uint16_t* out);
 void weather_set_fps(int fps_x10);               // governor
@@ -75,6 +82,18 @@ int  hero_activity(void);                        // GQ_ACT_*
 void hero_status_text(char* buf, int cap);       // "GOING TO EAT", "QUEST: CAVE", "TALK TO BRAM"... (status band)
 int  hero_away_progress(int* place_txt);         // chunk 0 stopgap: 0..255 while off screen, -1 otherwise
 int  world_actor_count(void);
+int  hero_in_bed(void);                          // 1 while the hero lies in bed (GQ_Q_HERO_ABED)
+void hero_force_chat(int npc);                   // gc_debug(GQ_DBG_FORCE_CHAT): chat with villager npc (0 = anyone) now
+
+// ---- talk.cpp (R3 dialogue engine; R3-0C ships a stub, chunk D1 the real one)
+void talk_init(void);
+void talk_on_event(int ev, int a, int b);        // remembers what the hero just did; called from quest_on_event
+int  talk_begin(int npc);                        // picks a script for npc 1..9; returns the number of turns (2..4), 0 = none
+int  talk_turn(int i, char* buf, int cap);       // text of turn i with slots filled; returns 1 if the hero speaks, 0 the villager.
+                                                 // buf gets at most cap-1 characters; "|" separates the two lines of the box
+int  talk_quest_reply(char* buf, int cap);       // hero's answer after a quest line (quest_talk); returns 1 if there is a line
+enum { TALK_SOLO_BED, TALK_SOLO_WAKE, TALK_SOLO_DID };
+int  talk_solo(int kind, char* buf, int cap);    // hero thinking aloud; 1 if there is a line
 
 // ---- ui.cpp (chunk 2)
 void ui_init(void);
