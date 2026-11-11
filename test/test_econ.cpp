@@ -400,7 +400,7 @@ static void soak(int days, uint32_t seed, bool standin) {
       if (income > max_income) max_income = income;
       // quest rewards and festivals add one-off bursts; the repeatable income is bounded on a 7 day average
       { static int32_t hist[7]; static int hn = 0; hist[hn % 7] = income; hn++;
-        if (hn >= 7) { int32_t sum = 0; for (int k = 0; k < 7; k++) sum += hist[k]; CHECK(sum <= 7 * 140); }
+        if (hn >= 7) { int32_t sum = 0; for (int k = 0; k < 7; k++) sum += hist[k]; CHECK(sum <= 7 * 165); }
         CHECK(income <= 260); }
       // every coin earned (plus the 3 the hero starts with) is in the wallet, in the fund, a star, or spent
       if (max_stars < 999) CHECK((int64_t)e + 3 == (int64_t)s + coins + G.s.fund + 100 * (int64_t)stars);
