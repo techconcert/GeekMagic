@@ -1,3 +1,3 @@
-SDP_GeekQuest_quest_9e90b9d.bin
-SDP_GeekQuest_test_9e90b9d.bin
+SDP_GeekQuest_quest_r-9e90b9d-3-g3c9.bin
+SDP_GeekQuest_test_r-9e90b9d-3-g3c9.bin
 Flash only the files listed here. Files in firmware/obsolete are old.
