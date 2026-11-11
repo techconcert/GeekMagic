@@ -175,9 +175,10 @@ static void draw_hud(uint16_t* out, int y0) {
   uint32_t coins = G.s.coins > 999 ? 999u : G.s.coins;
   fmt_uint(buf, coins);
   draw_text(out, y0, 17, 1, buf, g_ui[P_YELLOW], 2, 0);
-  // focus item (wood): at most 2 digits
-  blit_sprite(out, y0, 56, 0, GC_ITEMS(I_WOOD), 0, 0, g_ui);
-  uint32_t wood = G.s.inv[GQ_ITEM_WOOD] > 99 ? 99u : G.s.inv[GQ_ITEM_WOOD];
+  // focus item (what the current goal still needs, wood by default): at most 2 digits
+  int focus = econ_focus_item();
+  blit_sprite(out, y0, 56, 0, GC_ITEMS(econ_item_icon(focus)), 0, 0, g_ui);
+  uint32_t wood = econ_item(focus) > 99 ? 99u : (uint32_t)econ_item(focus);
   fmt_uint(buf, wood);
   draw_text(out, y0, 73, 1, buf, g_ui[P_WHITE], 2, 0);
   // stars, only once there is one: at most 3 digits
@@ -216,6 +217,29 @@ static void draw_status_band(uint16_t* out, int y0) {
   draw_text(out, y0, x, y0 + 1, s, g_ui[P_WHITE], 2, 0);
 }
 
+// Goal band (design 6.6, simple version until chunk 2): icon, goal name, coins/price, and a
+// 2 px progress line at the very bottom.
+static void draw_goal_band(uint16_t* out, int y0) {
+  fill_rect(out, y0, 0, y0, GC_W, 16, g_ui[P_OUTLINE]);
+  char name[12], nb[12], pb[12], frac[12];
+  int num = 0, den = 1;
+  int goal = econ_goal_band(name, 12, &num, &den);
+  blit_sprite(out, y0, 0, y0, GC_ITEMS(I_COIN), 0, 0, g_ui);
+  draw_text(out, y0, 20, y0 + 1, name, g_ui[goal ? P_WHITE : P_YELLOW], 2, 0);
+  fmt_uint(nb, (uint32_t)num);
+  fmt_uint(pb, (uint32_t)den);
+  int n = str_len(nb);
+  str_copy(frac, nb, 12);
+  frac[n] = '/';
+  str_copy(frac + n + 1, pb, 12 - n - 1);
+  int w = str_len(frac) * 12;
+  draw_text(out, y0, GC_W - w - 2, y0 + 1, frac, g_ui[P_YELLOW], 2, 0);
+  int bar = den > 0 ? num * GC_W / den : 0;
+  if (bar > GC_W) bar = GC_W;
+  fill_rect(out, y0, 0, y0 + 14, GC_W, 2, g_ui[P_GREY]);
+  if (bar > 0) fill_rect(out, y0, 0, y0 + 14, bar, 2, g_ui[P_YELLOW]);
+}
+
 void ui_render(int s, uint16_t* out) {
   int y0 = s * GC_STRIP_H;
   if (s == 0) draw_hud(out, y0);
@@ -223,4 +247,5 @@ void ui_render(int s, uint16_t* out) {
   if (away >= 0 && s >= 12) draw_postcard(out, y0, away);
   else if (D.active && s >= 12) draw_dialogue(out, y0);
   else if (g_status_band && s == GC_ROWS - 1) draw_status_band(out, y0);
+  else if (s == GC_ROWS - 1) draw_goal_band(out, y0);
 }
