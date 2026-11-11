@@ -201,6 +201,39 @@ textarea { width: 100%; box-sizing: border-box; height: 5.2em; font-family: var(
           </div>
         </div>
         <div class="group">
+          <h2>Live weather, sleep, chat</h2>
+          <div class="seg">
+            <select id="lw-wx" aria-label="Live weather">
+              <option value="-1">No live weather</option>
+              <option value="0">Clear</option><option value="1">Cloudy</option><option value="2">Rain</option>
+              <option value="3">Storm</option><option value="4">Fog</option><option value="5">Snow</option><option value="6">Windy</option>
+            </select>
+            <input id="lw-temp" type="number" min="-99.9" max="99.9" step="0.1" value="23" aria-label="Temperature in Celsius" style="width:5.5em">
+            <label class="check"><input id="lw-f" type="checkbox"> Fahrenheit</label>
+            <label class="check"><input id="lw-night" type="checkbox"> Night</label>
+            <label class="check"><input id="lw-stale" type="checkbox"> Stale</label>
+          </div>
+          <div class="seg">
+            <select id="sleep-mode" aria-label="Sleep mode">
+              <option value="0" selected>Sleep: built-in night</option>
+              <option value="1">Sleep: stay up</option>
+              <option value="2">Sleep: go to bed</option>
+            </select>
+          </div>
+          <div class="seg">
+            <select id="chat-npc" aria-label="Villager">
+              <option value="0">Anyone</option><option value="1">Mira</option><option value="2">Bram</option><option value="3">Pip</option>
+              <option value="4">Odda</option><option value="5">Finn</option><option value="6">Tess</option><option value="7">Luma</option>
+              <option value="8">Wren</option>
+            </select>
+            <select id="chat-turns" aria-label="Chat script">
+              <option value="0" selected>Normal script</option><option value="2">Test 2 turns</option>
+              <option value="3">Test 3 turns</option><option value="4">Test 4 turns</option>
+            </select>
+            <button class="small" id="chat-go" type="button">Force chat</button>
+          </div>
+        </div>
+        <div class="group">
           <h2>Restart</h2>
           <div class="seg">
             <button class="small" id="restart" type="button">Simulate restart</button>
@@ -262,7 +295,17 @@ textarea { width: 100%; box-sizing: border-box; height: 5.2em; font-family: var(
     ex.set_option(0, +$("card-period").value);
     ex.set_net($("wifi-down").checked ? 1 : 0);
     ex.clock_quality($("clock-approx").checked ? 1 : 0);
+    applyR3();
     ex.set_depth(+$("depth").value);
+  }
+
+  // R3 controls: options survive the game restart in the core, so they are simply applied again.
+  function applyR3() {
+    const t = Math.round(parseFloat($("lw-temp").value) * 10) || 0;
+    const fl = ($("lw-f").checked ? 1 : 0) | ($("lw-night").checked ? 2 : 0) | ($("lw-stale").checked ? 4 : 0);
+    ex.set_live_weather(+$("lw-wx").value, t, fl);
+    ex.set_option(2, +$("sleep-mode").value);
+    ex.debug(DBG.TALK_TURNS, +$("chat-turns").value);
   }
 
   function blit(strip) {
@@ -348,8 +391,8 @@ textarea { width: 100%; box-sizing: border-box; height: 5.2em; font-family: var(
   ["COINS", "COIN_CAP", "STARS", "FUND", "EARNED_TOTAL", "SPENT_TOTAL", "DAY", "MINUTE", "SEASON", "WEATHER",
    "FESTIVAL", "EVENT", "HERO_PRESENCE", "HERO_AREA", "HERO_ACT", "HERO_HEARTS", "HERO_TILE", "GOAL", "GOAL_PRICE",
    "PROJECTS", "CHAPTER", "QUEST", "QUEST_STEP", "QUEST_COUNT", "TILL_LEFT", "ERRANDS_TODAY", "ACH_COUNT",
-   "SEEN_COUNT", "CARD", "ACTORS_VISIBLE"].forEach((k, i) => { Q[k] = i; });
-  const DBG = { ADD_COINS: 0, SET_DAY: 1, SET_WEATHER: 2, ADD_ITEM: 3, START_QUEST: 4, SHOW_CARD: 5, FORCE_ACT: 6, BUY_GOAL: 7, NEXT_DAY: 8 };
+   "SEEN_COUNT", "CARD", "ACTORS_VISIBLE", "HERO_ABED", "LIVE_WX", "LIVE_TEMP", "LIVE_FLAGS", "SLEEP_MODE"].forEach((k, i) => { Q[k] = i; });
+  const DBG = { ADD_COINS: 0, SET_DAY: 1, SET_WEATHER: 2, ADD_ITEM: 3, START_QUEST: 4, SHOW_CARD: 5, FORCE_ACT: 6, BUY_GOAL: 7, NEXT_DAY: 8, FORCE_CHAT: 9, TALK_TURNS: 10 };
   const NAMES = {
     SEASON: ["spring", "summer", "autumn", "winter"],
     WEATHER: ["clear", "cloudy", "rain", "storm", "fog", "snow", "windy"],
@@ -359,7 +402,7 @@ textarea { width: 100%; box-sizing: border-box; height: 5.2em; font-family: var(
   };
   const READ = ["DAY", "MINUTE", "SEASON", "WEATHER", "FESTIVAL", "EVENT", "COINS", "COIN_CAP", "STARS", "FUND",
     "EARNED_TOTAL", "GOAL", "GOAL_PRICE", "PROJECTS", "CHAPTER", "QUEST", "QUEST_STEP", "QUEST_COUNT", "HERO_PRESENCE",
-    "HERO_AREA", "HERO_ACT", "HERO_HEARTS", "ACH_COUNT", "SEEN_COUNT", "ERRANDS_TODAY", "TILL_LEFT", "CARD", "ACTORS_VISIBLE"];
+    "HERO_AREA", "HERO_ACT", "HERO_HEARTS", "ACH_COUNT", "SEEN_COUNT", "ERRANDS_TODAY", "TILL_LEFT", "CARD", "ACTORS_VISIBLE", "HERO_ABED", "LIVE_WX", "LIVE_TEMP", "SLEEP_MODE"];
   const ro = $("readout");
   const roCells = {};
   READ.forEach((k) => {
@@ -410,6 +453,10 @@ textarea { width: 100%; box-sizing: border-box; height: 5.2em; font-family: var(
     $("wifi-down").addEventListener("change", () => ex.set_net($("wifi-down").checked ? 1 : 0));
     $("clock-approx").addEventListener("change", () => ex.clock_quality($("clock-approx").checked ? 1 : 0));
     $("restart").addEventListener("click", () => start(scene));
+    ["lw-wx", "lw-temp", "lw-f", "lw-night", "lw-stale", "sleep-mode", "chat-turns"].forEach((id) => $(id).addEventListener("change", applyR3));
+    // the live reading is a once-a-second input in the firmware; keep feeding it so a reset game sees it too
+    setInterval(() => { if (scene === 1) applyR3(); }, 1000);
+    $("chat-go").addEventListener("click", () => { applyR3(); dbg(DBG.FORCE_CHAT, +$("chat-npc").value); });
   }
   function seg(groupId, onPick) {
     const g = $(groupId);

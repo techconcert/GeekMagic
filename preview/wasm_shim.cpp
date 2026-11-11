@@ -23,6 +23,7 @@ __attribute__((export_name("debug"))) void w_debug(int cmd, int arg) { gc_debug(
 __attribute__((export_name("set_date"))) void w_date(int y, int m, int d, int wd) { gc_set_date(y, m, d, wd, 0); }
 __attribute__((export_name("set_net"))) void w_net(int state) { gc_set_net(state); }
 __attribute__((export_name("set_option"))) void w_option(int key, int value) { gc_set_option(key, value); }
+__attribute__((export_name("set_live_weather"))) void w_live(int wx, int t10, int flags) { gc_set_live_weather(wx, t10, flags); }
 __attribute__((export_name("clock_quality"))) void w_quality(int approx) { gc_set_clock_quality(approx); }
 __attribute__((export_name("render"))) void w_render(int s) { gc_render_strip(s, strip_buf); }
 }
