@@ -332,13 +332,15 @@ static int card_can_open(void) {
 static uint32_t card_signature(void) {
   uint32_t h = 2166136261u;
   const GqSave& s = G.s;
-  uint32_t v[10] = {s.minute, s.coins, s.stars, s.projects, s.weather, s.day, s.goal, s.chapter,
+  uint32_t v[10] = {s.minute, s.coins, s.stars, s.projects, (uint32_t)cal_weather_shown(), s.day, s.goal, s.chapter,
                     (uint32_t)(s.q_active | (s.q_step << 8) | (s.q_count << 16)), s.fund};
   for (int i = 0; i < 10; i++) h = (h ^ v[i]) * 16777619u;
   for (int i = 0; i < GQ_ITEM_COUNT; i++) h = (h ^ s.inv[i]) * 16777619u;
   for (int i = 0; i < 12; i++) h = (h ^ s.friend_[i]) * 16777619u;
   h = (h ^ s.earned_total) * 16777619u;
   h = (h ^ G.clock_approx) * 16777619u;
+  h = (h ^ (uint32_t)(G.live_temp10 + 1000)) * 16777619u;
+  h = (h ^ ((uint32_t)G.live_wx1 | (uint32_t)G.live_flags << 8)) * 16777619u;
   return h;
 }
 
@@ -431,7 +433,12 @@ static uint32_t hud_signature(void) {
   uint32_t h = G.s.coins;
   h = h * 131u + (uint32_t)econ_focus_item();
   h = h * 131u + G.s.inv[econ_focus_item() & 31];
-  h = h * 131u + (uint32_t)cal_weather();
+  h = h * 131u + (uint32_t)cal_weather_shown();
+  {
+    int tv = 0, tf = 0, live = cal_temp(&tv, &tf);   // live: temperature, unit, night icon and age class
+    h = h * 131u + (uint32_t)(live ? tv + 200 : 0);
+    h = h * 131u + (uint32_t)(live ? 1 + (G.live_flags & 7) : 0);
+  }
   h = h * 131u + (uint32_t)cal_season();
   h = h * 131u + (uint32_t)cal_day_of_season();
   h = h * 131u + G.net;
@@ -547,15 +554,41 @@ static void draw_hud(uint16_t* out, int y0) {
   fmt_uint(buf, cnt);
   draw_text(out, y0, 73, 1, buf, g_ui[P_WHITE], 2, 0);
   // weather icon, season and day of season
-  int w = cal_weather();
+  int w = cal_weather_shown();
   if (w < 0 || w >= GQ_W_COUNT) w = 0;
-  blit_sprite(out, y0, 100, 0, GC_ITEMS(40 + w), 0, 0, g_ui);
+  int tv = 0, tf = 0;
+  int live = cal_temp(&tv, &tf);
+  int icon = 40 + w;
+  if (live && w == GQ_W_CLEAR && (G.live_flags & GC_WXF_NIGHT)) icon = 47;   // moon
+  blit_sprite(out, y0, 100, 0, GC_ITEMS(icon), 0, 0, g_ui);
+  int sx = 120;                                     // x of the season block
+  if (live) {
+    // temperature (design R3 2.7): scale 2, right-aligned in three cells 117..152, then the degree mark and the unit
+    if (tv < -99) tv = -99;
+    if (tv > 199) tv = 199;
+    char tb[5];
+    int n = 0;
+    if (tv < 0) { tb[n++] = '-'; tv = -tv; }
+    fmt_uint(tb + n, (uint32_t)tv);
+    uint16_t tc = (G.live_flags & GC_WXF_STALE) ? g_ui[P_GREY] : g_ui[P_WHITE];
+    draw_text(out, y0, 117 + (3 - str_len(tb)) * 12, 1, tb, tc, 2, 0);
+    fill_rect(out, y0, 154, 1, 3, 1, tc);           // 3x3 hollow degree square
+    fill_rect(out, y0, 154, 3, 3, 1, tc);
+    fill_rect(out, y0, 154, 2, 1, 1, tc);
+    fill_rect(out, y0, 156, 2, 1, 1, tc);
+    draw_text(out, y0, 154, 8, tf ? "F" : "C", tc, 1, 0);
+    sx = 163;
+  }
   int se = cal_season() & 3;
-  draw_text(out, y0, 120, 0, SEASON_ABBR[se], g_ui[P_WHITE], 1, 0);
-  buf[0] = 'D'; buf[1] = (char)('0' + cal_day_of_season() % 10); buf[2] = 0;
-  draw_text(out, y0, 120, 8, buf, g_ui[P_GREY], 1, 0);
-  // red "!" only while the station link is down
-  if (G.net == GC_NET_OFFLINE) draw_text(out, y0, 150, 1, "!", g_ui[12], 2, 0);
+  if (live && G.net == GC_NET_OFFLINE) {
+    draw_text(out, y0, sx, 1, "!", g_ui[12], 2, 0);   // the red "!" replaces the season block
+  } else {
+    draw_text_n(out, y0, sx, 0, SEASON_ABBR[se], live ? 2 : 3, g_ui[P_WHITE], 1);   // SP SU AU WI when live
+    buf[0] = 'D'; buf[1] = (char)('0' + cal_day_of_season() % 10); buf[2] = 0;
+    draw_text(out, y0, sx, 8, buf, g_ui[P_GREY], 1, 0);
+    // red "!" only while the station link is down
+    if (G.net == GC_NET_OFFLINE) draw_text(out, y0, 150, 1, "!", g_ui[12], 2, 0);
+  }
   char t[6] = {'-', '-', ':', '-', '-', 0};
   if (g_clock_valid) {
     t[0] = (char)('0' + g_hour / 10); t[1] = (char)('0' + g_hour % 10);
@@ -670,12 +703,29 @@ static void card_clock(uint16_t* out, int y0) {
   fmt_uint(d, (uint32_t)cal_year());
   str_cat(b, n, d, 24);
   ctc(out, y0, 136, b, white, 2);
-  int w = cal_weather();
+  int w = cal_weather_shown();
   if (w < 0 || w >= GQ_W_COUNT) w = 0;
-  int tw = 22 + str_len(WEATHER_NAME[w]) * 12;
+  char wl[16];
+  int wn = str_cat(wl, 0, WEATHER_NAME[w], 16);
+  int tv = 0, tf = 0;
+  int icon = 40 + w;
+  if (cal_temp(&tv, &tf)) {                          // "RAIN 7C", the temperature appended
+    if (tv < -99) tv = -99;
+    if (tv > 199) tv = 199;
+    char d2[6];
+    int m = 0;
+    if (tv < 0) { d2[m++] = '-'; tv = -tv; }
+    fmt_uint(d2 + m, (uint32_t)tv);
+    wn = str_cat(wl, wn, " ", 16);
+    wn = str_cat(wl, wn, d2, 16);
+    str_cat(wl, wn, tf ? "F" : "C", 16);
+    if (w == GQ_W_CLEAR && (G.live_flags & GC_WXF_NIGHT)) icon = 47;
+  }
+  int tw = 22 + str_len(wl) * 12;
   int x = CARD_X + (CARD_W - tw) / 2;
-  blit_sprite(out, y0, x, 156, GC_ITEMS(40 + w), 0, 0, g_ui);
-  ct(out, y0, x + 22, 157, WEATHER_NAME[w], white, 2);
+  if (x < 12) x = 12;
+  blit_sprite(out, y0, x, 156, GC_ITEMS(icon), 0, 0, g_ui);
+  ct(out, y0, x + 22, 157, wl, white, 2);
   if (G.clock_approx) ctc(out, y0, 186, "CLOCK NOT SYNCED YET", grey, 1);
 }
 

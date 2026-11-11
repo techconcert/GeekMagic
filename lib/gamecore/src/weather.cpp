@@ -40,7 +40,7 @@ static int period_now(int w) {
 }
 
 static int active(void) {
-  return s_level < 2 && s_outdoors && GC_RD8(&COUNT[cal_weather()]) != 0;
+  return s_level < 2 && s_outdoors && GC_RD8(&COUNT[cal_weather_shown()]) != 0;
 }
 
 // Governor (design 6.1): under 8 fps the particles stop; under 12 fps for 5 s they halve in
@@ -58,7 +58,7 @@ void weather_set_fps(int fps_x10) {
 
 void weather_tick(uint32_t dt) {
   if (dt > 250) dt = 250;
-  int w = cal_weather();
+  int w = cal_weather_shown();
   int area = world_area();
   s_outdoors = (area != GQ_AREA_CAVE && area < GQ_AREA_HOME) ? 1 : 0;
   if (s_fps_low && s_level == 0) {
@@ -93,7 +93,7 @@ static void put(uint16_t* out, int y0, int x, int y, uint16_t c) {
 
 void weather_render(int strip, uint16_t* out) {
   if (strip < FIRST_STRIP || strip > LAST_STRIP || !active()) return;
-  int w = cal_weather();
+  int w = cal_weather_shown();
   int n = count_now(w);
   int y0 = strip * GC_STRIP_H;
   // each strip shows the phase it was last scheduled for, so its picture does not depend on

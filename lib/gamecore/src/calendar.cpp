@@ -50,6 +50,11 @@ static uint16_t s_event_day;      // (day + 1) for which the daily event was dra
 static uint16_t s_fest_day;       // (day + 1) for which the festival start was announced; volatile
 static int32_t  s_flash_cd;       // ms until the next lightning (storm only)
 static int32_t  s_flash_ms;       // ms of the current flash left
+static uint32_t s_storm_ms;       // ms of live STORM in this game day (volatile; resets at NEW_DAY)
+uint16_t g_cal_wx_events;         // GQ_EV_WEATHER count, read by host tests only
+static uint32_t s_wrng;           // private generator of the weather machine (seeded in cal_init)
+static int8_t   s_cw = -1;        // last value of cal_weather(), for GQ_EV_WEATHER
+enum { STORM_ALLOWANCE_MS = 120 * 60 * 1000 };
 
 static int festival_day(void) { return G.s.day % 7 == 6; }
 static int minute_of_day(void) { return G.s.minute > 1439 ? 1439 : G.s.minute; }
@@ -59,7 +64,34 @@ int cal_is_night(void) { return G.s.minute >= 22 * 60 || G.s.minute < 6 * 60; }
 int cal_season(void) { return (G.s.day / 7) % 4; }
 int cal_day_of_season(void) { return G.s.day % 7 + 1; }
 int cal_year(void) { return G.s.day / 28 + 1; }
-int cal_weather(void) { return G.s.weather < GQ_W_COUNT ? (int)G.s.weather : (int)GQ_W_CLEAR; }
+static int sim_weather(void) { return G.s.weather < GQ_W_COUNT ? (int)G.s.weather : (int)GQ_W_CLEAR; }
+// R3 live weather (design 2.7). The simulated machine keeps running underneath, untouched.
+int cal_live(void) { return G.live_wx1 >= 1 && G.live_wx1 <= GQ_W_COUNT; }
+int cal_weather_shown(void) { return cal_live() ? (int)G.live_wx1 - 1 : sim_weather(); }
+// Game rules: the live state, except that a live STORM blocks outdoor work for 120 minutes per game day only.
+int cal_weather(void) {
+  int w = cal_weather_shown();
+  if (w == GQ_W_STORM && cal_live() && s_storm_ms >= (uint32_t)STORM_ALLOWANCE_MS) return GQ_W_RAIN;
+  return w;
+}
+// Whole degrees in the display unit, rounded half away from zero (exact integer maths).
+int cal_temp(int* out, int* is_f) {
+  if (!cal_live() || G.live_temp10 < -999 || G.live_temp10 > 999) return 0;   // no live data, no temperature
+  int c10 = G.live_temp10, f = (G.live_flags & GC_WXF_FAHRENHEIT) ? 1 : 0;
+  int v = f ? c10 * 9 + 1600 : c10 * 5;       // both in 1/50 degree: F = C*9/5+32, C = tenths * 5
+  int a = v < 0 ? -v : v;
+  a = (a + 25) / 50;
+  if (out) *out = v < 0 ? -a : a;
+  if (is_f) *is_f = f;
+  return 1;
+}
+int cal_temp_c(int* out) {
+  if (!cal_live()) return 0;
+  int c10 = G.live_temp10, a = c10 < 0 ? -c10 : c10;
+  a = (a + 5) / 10;
+  if (out) *out = c10 < 0 ? -a : a;
+  return 1;
+}
 int cal_event(void) { return G.s.event_today <= EVENT_COUNT ? G.s.event_today : 0; }
 
 // Festival of this season, only on day 7 of the season between 16:00 and 22:00.
@@ -70,23 +102,40 @@ int cal_festival(void) {
 }
 
 // --------------------------------------------------------------- weather
+// xorshift32: the simulated weather must not depend on how often the rest of the game draws random numbers,
+// which differs with live weather (hero choices), so the machine has its own stream.
+static uint32_t wrnd(void) {
+  uint32_t x = s_wrng;
+  x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+  s_wrng = x ? x : 0x9E3779B9u;
+  return s_wrng;
+}
+
+// GQ_EV_WEATHER fires once per change of cal_weather(), whatever the cause (simulation, live data, storm cap).
+static void sync_weather(int emit) {
+  int c = cal_weather();
+  if (c == s_cw) return;
+  s_cw = (int8_t)c;
+  if (emit) { g_cal_wx_events++; gq_emit(GQ_EV_WEATHER, c, 0); }
+}
+
 static void set_weather(int w, int hours, int emit) {
   G.s.weather_hours = (uint8_t)hours;
   if (w == G.s.weather) return;
   G.s.weather = (uint8_t)w;
   gq_touch();
-  if (emit) gq_emit(GQ_EV_WEATHER, w, 0);
+  sync_weather(emit);
 }
 
 // Draws the next state from the season row (bounded loop over 7 weights).
 static void draw_weather(int emit) {
   const uint8_t* row = WEATHER_ODDS[cal_season()];
-  int roll = (int)(gc_rnd() % 100), w = 0;
+  int roll = (int)(wrnd() % 100), w = 0;
   for (int i = 0; i < GQ_W_COUNT; i++) {
     roll -= GC_RD8(&row[i]);
     if (roll < 0) { w = i; break; }
   }
-  set_weather(w, 2 + (int)(gc_rnd() % 7), emit);   // 2..8 game hours
+  set_weather(w, 2 + (int)(wrnd() % 7), emit);   // 2..8 game hours
 }
 
 // Festival days are clear until 22:00; snow only exists in winter; an empty timer draws.
@@ -138,7 +187,9 @@ static void festival_update(int emit) {
 void cal_on_event(int ev, int a, int b) {
   (void)b;
   if (ev == GQ_EV_NEW_DAY) {
+    s_storm_ms = 0;
     weather_rules(1);
+    sync_weather(1);
   } else if (ev == GQ_EV_HOUR) {
     weather_hour();
     if (a == 6) draw_daily_event();
@@ -158,7 +209,8 @@ void cal_look(GqLook* out) {
     int a = GC_RD16(&KEYS[i][1 + c]), b = GC_RD16(&KEYS[i + 1][1 + c]);
     t[c] = a + (((b - a) * f) >> 8);
   }
-  const WxLook* w = &WX[cal_weather()];
+  int shown = cal_weather_shown();
+  const WxLook* w = &WX[shown < GQ_W_COUNT ? shown : 0];
   t[0] = t[0] * (int)GC_RD16(&w->tr) >> 8;
   t[1] = t[1] * (int)GC_RD16(&w->tg) >> 8;
   t[2] = t[2] * (int)GC_RD16(&w->tb) >> 8;
@@ -171,7 +223,8 @@ void cal_look(GqLook* out) {
   int k = GC_RD8(&w->k), r = GC_RD8(&w->wr), g = GC_RD8(&w->wg), bl = GC_RD8(&w->wb);
   if (s_flash_ms > 0) { t[0] = t[1] = t[2] = 320; k = 90; r = g = bl = 255; }   // lightning
   for (int c = 0; c < 3; c++) { if (t[c] < 0) t[c] = 0; if (t[c] > 320) t[c] = 320; }
-  out->season = (uint8_t)cal_season();
+  // live snow in a game summer is drawn with the winter colours; the game season itself is unchanged
+  out->season = (uint8_t)((cal_live() && shown == GQ_W_SNOW) ? GQ_WINTER : cal_season());
   out->wash_k = (uint8_t)k;
   out->wash_rgb565 = k ? (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (bl >> 3)) : 0;
   out->tr = (int16_t)t[0];
@@ -185,6 +238,8 @@ void cal_init(void) {
   s_armed = 1;
   s_event_day = s_fest_day = 0;
   s_flash_ms = 0;
+  s_storm_ms = 0;
+  s_wrng = gc_rnd() | 1u;
   s_flash_cd = 20000 + (int32_t)(gc_rnd() % 40000);
   if (g_clock_valid) G.s.minute = (uint16_t)(g_hour * 60 + g_min);
   if (G.s.minute > 1439) G.s.minute = 1439;
@@ -193,6 +248,8 @@ void cal_init(void) {
   if (cal_festival() < 0) G.s.festival_flags = 0;
   G.s.festival_flags &= 0x0F;
   if (G.s.event_today > EVENT_COUNT) G.s.event_today = 0;
+  s_cw = -1;
+  sync_weather(0);
 }
 
 // Sets the minute of day. `day` increases only on a natural midnight crossing (design 5.1):
@@ -229,9 +286,11 @@ void cal_tick(uint32_t dt) {
     }
   }
   festival_update(1);
+  if (cal_live() && G.live_wx1 - 1 == GQ_W_STORM && s_storm_ms < 0xFFFFFF00u) s_storm_ms += dt > 250 ? 250 : dt;
+  sync_weather(1);
   // lightning: a flash of 80 ms every 20..60 s while it storms
   if (s_flash_ms > 0) s_flash_ms = s_flash_ms > (int32_t)dt ? s_flash_ms - (int32_t)dt : 0;
-  if (cal_weather() == GQ_W_STORM) {
+  if (cal_weather_shown() == GQ_W_STORM) {
     s_flash_cd -= (int32_t)dt;
     if (s_flash_cd <= 0) {
       s_flash_cd = 20000 + (int32_t)(gc_rnd() % 40001);

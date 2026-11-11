@@ -361,6 +361,125 @@ static void test_restore() {
   CHECK(s.weather < GQ_W_COUNT && s.weather_hours <= 8 && s.event_today <= 12 && (s.festival_flags & 0xF0) == 0 && s.minute <= 1439);
 }
 
+
+// ---- R3 live weather (design 2.7, 9.3)
+extern uint16_t g_cal_wx_events;
+
+static void test_live_basic() {
+  start(12 * 60);
+  gc_debug(GQ_DBG_SET_DAY, 1);                     // day 2 of spring, no festival
+  gc_debug(GQ_DBG_SET_WEATHER, GQ_W_FOG);
+  gc_set_live_weather(GC_WX_NONE, 0, 0);
+  feed(12 * 60);
+  CHECK(!cal_live() && cal_weather_shown() == GQ_W_FOG && cal_weather() == GQ_W_FOG);
+  for (int w = 0; w < GQ_W_COUNT; w++) {
+    gc_set_live_weather(w, 100, 0);
+    feed(12 * 60);
+    CHECK(cal_live() && cal_weather_shown() == w && cal_weather() == w);
+    GqLook lk;
+    cal_look(&lk);
+    CHECK(lk.season == (w == GQ_W_SNOW ? GQ_WINTER : cal_season()));   // live snow is drawn with the winter palette
+  }
+  gc_set_live_weather(GC_WX_NONE, 0, 0);
+  feed(12 * 60);
+  CHECK(!cal_live() && cal_weather_shown() == GQ_W_FOG);
+  int t;
+  CHECK(cal_temp(&t, nullptr) == 0 && cal_temp_c(&t) == 0);
+  std::printf("live basic ok\n");
+}
+
+// the simulated machine behaves identically with and without live data underneath
+static void run_sim(bool live, uint8_t* out, int n) {
+  start(0);
+  for (int i = 0; i < n; i++) {
+    int m = (i * 60 + 59) % 1440;
+    if (live) gc_set_live_weather(i % GQ_W_COUNT, i * 7 % 500, i & 7);
+    feed(m);
+    feed((m + 1) % 1440);
+    out[i] = (uint8_t)G.s.weather;
+    out[n + i] = G.s.weather_hours;
+  }
+}
+static void test_live_sim_identical() {
+  const int N = 24 * 60;
+  static uint8_t a[2 * 24 * 60], b[2 * 24 * 60];
+  run_sim(false, a, N);
+  run_sim(true, b, N);
+  for (int i = 0; i < 2 * N; i++) if (a[i] != b[i]) { std::printf("first diff at %d: %d vs %d\n", i, a[i], b[i]); break; }
+  CHECK(std::memcmp(a, b, sizeof(a)) == 0);
+  std::printf("live sim identical ok\n");
+}
+
+static void test_live_storm_cap() {
+  start(12 * 60);
+  gc_debug(GQ_DBG_SET_DAY, 1);
+  gc_set_live_weather(GQ_W_STORM, 150, 0);
+  gc_set_clock(12, 0, 1);
+  for (int i = 0; i < 4 * 60 * 119; i++) gc_tick(250);     // 119 minutes
+  CHECK(cal_weather() == GQ_W_STORM && cal_weather_shown() == GQ_W_STORM);
+  for (int i = 0; i < 4 * 60 * 2; i++) gc_tick(250);       // 121 minutes
+  CHECK(cal_weather() == GQ_W_RAIN && cal_weather_shown() == GQ_W_STORM);
+  CHECK(gc_query(GQ_Q_WEATHER) == GQ_W_RAIN);
+  // a storm of another kind of day does not carry over: the allowance resets at the day change
+  gc_set_clock(23, 59, 1); gc_tick(250);
+  gc_set_clock(0, 0, 1); gc_tick(250);
+  CHECK(cal_weather() == GQ_W_STORM && cal_weather_shown() == GQ_W_STORM);
+  std::printf("live storm cap ok\n");
+}
+
+static void test_live_event() {
+  start(12 * 60);
+  gc_debug(GQ_DBG_SET_DAY, 1);
+  gc_set_live_weather(GQ_W_CLEAR, 0, 0);
+  feed(12 * 60);
+  uint16_t e0 = g_cal_wx_events;
+  feed(12 * 60);
+  CHECK(g_cal_wx_events == e0);                           // no change, no event
+  gc_set_live_weather(GQ_W_RAIN, 0, 0); feed(12 * 60);
+  CHECK(g_cal_wx_events == (uint16_t)(e0 + 1));
+  feed(12 * 60); feed(12 * 60);
+  CHECK(g_cal_wx_events == (uint16_t)(e0 + 1));
+  gc_set_live_weather(GQ_W_RAIN, 90, GC_WXF_STALE); feed(12 * 60);
+  CHECK(g_cal_wx_events == (uint16_t)(e0 + 1));          // same state, only the temperature moved
+  gc_set_live_weather(GQ_W_SNOW, 90, 0); feed(12 * 60);
+  CHECK(g_cal_wx_events == (uint16_t)(e0 + 2));
+  gc_set_live_weather(GC_WX_NONE, 0, 0); feed(12 * 60);   // back to the simulated state: one more event if it differs
+  CHECK(g_cal_wx_events == (uint16_t)(e0 + 2 + (cal_weather() != GQ_W_SNOW ? 1 : 0)));
+  std::printf("live event ok\n");
+}
+
+static void test_live_conversion() {
+  start(12 * 60);
+  struct { int c10, c, f; } T[] = {
+    {-400, -40, -40}, {0, 0, 32}, {378, 4, 100}, {5, 1, 32}, {-5, -1, 31}, {4, 0, 32}, {-4, 0, 32},
+    {15, 2, 35}, {-15, -2, 29}, {1000, 100, 212}, {-999, -100, -146}, {999, 100, 212}, {230, 23, 73}, {-120, -12, 10}, {400, 40, 104}};
+  for (auto& t : T) {
+    gc_set_live_weather(GQ_W_CLEAR, t.c10, 0);
+    int c = 99, f = 99, isf = 9;
+    CHECK(cal_temp(&c, &isf) == 1 && isf == 0);
+    // degrees C: round half away from zero
+    int want_c = t.c10 < 0 ? -((-t.c10 + 5) / 10) : (t.c10 + 5) / 10;
+    CHECK(c == want_c);
+    int cc = 99;
+    CHECK(cal_temp_c(&cc) == 1 && cc == want_c);
+    gc_set_live_weather(GQ_W_CLEAR, t.c10, GC_WXF_FAHRENHEIT);
+    CHECK(cal_temp(&f, &isf) == 1 && isf == 1);
+    // reference in tenths of F, exact
+    int f50 = (t.c10 > 999 ? 999 : t.c10) * 9 + 1600;
+    int want_f = f50 < 0 ? -((-f50 + 25) / 50) : (f50 + 25) / 50;
+    CHECK(f == want_f);
+  }
+  // spot values from the design
+  int v, isf;
+  gc_set_live_weather(0, -400, GC_WXF_FAHRENHEIT); cal_temp(&v, &isf); CHECK(v == -40);
+  gc_set_live_weather(0, 0, GC_WXF_FAHRENHEIT);    cal_temp(&v, &isf); CHECK(v == 32);
+  gc_set_live_weather(0, 378, GC_WXF_FAHRENHEIT);  cal_temp(&v, &isf); CHECK(v == 100);
+  // absurd inputs are clamped to +-99.9 C
+  gc_set_live_weather(0, 2000000000, 0);  cal_temp(&v, &isf); CHECK(v == 100);
+  gc_set_live_weather(0, -2000000000, 0); cal_temp(&v, &isf); CHECK(v == -100);
+  std::printf("live conversion ok\n");
+}
+
 int main() {
   test_day_count();
   test_jumps();
@@ -373,6 +492,11 @@ int main() {
   test_look();
   test_lightning();
   test_restore();
+  test_live_basic();
+  test_live_sim_identical();
+  test_live_storm_cap();
+  test_live_event();
+  test_live_conversion();
   std::printf("test_calendar OK\n");
   return 0;
 }

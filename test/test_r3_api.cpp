@@ -31,14 +31,16 @@ static void test_live_weather_input() {
   gc_set_live_weather(0, 2000000000, 0);            CHECK(gc_query(GQ_Q_LIVE_TEMP) == 999);
   gc_set_live_weather(0, -2000000000, 0);           CHECK(gc_query(GQ_Q_LIVE_TEMP) == -999);
   gc_set_live_weather(0, 0, 0xFF);                  CHECK(gc_query(GQ_Q_LIVE_FLAGS) == 7);
-  // the stubs keep today's behaviour: nothing is live, the simulated weather rules
+  // nothing live: today's behaviour, the simulated weather rules
   int t = 77, f = 77;
+  gc_set_live_weather(GC_WX_NONE, 0, 0);
   CHECK(cal_live() == 0);
   CHECK(cal_weather_shown() == cal_weather());
   CHECK(cal_temp(&t, &f) == 0 && cal_temp_c(&t) == 0);
   gc_debug(GQ_DBG_SET_WEATHER, GQ_W_FOG);
-  gc_set_live_weather(GQ_W_SNOW, -50, 0);
   CHECK(gc_query(GQ_Q_WEATHER) == GQ_W_FOG);
+  gc_set_live_weather(GQ_W_SNOW, -50, 0);           // W2: live data now replaces the state (the simulated one runs on)
+  CHECK(gc_query(GQ_Q_WEATHER) == GQ_W_SNOW);
   sim_minutes(10);                                  // a state that stays set across ticks and a game reset
   gc_reset_game();
   CHECK(gc_query(GQ_Q_LIVE_WX) == GQ_W_SNOW);
