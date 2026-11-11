@@ -384,13 +384,21 @@ struct Out {
       if (r) put(r, strlen(r)); else put(t, 1);
     }
   }
-  void f(PGM_P fmt, ...) {                                                   // printf with a flash format
-    char t[140];
-    va_list ap;
+  // printf with a flash format, straight into the buffer (no second 140-byte stack buffer: the old one cut every longer
+  // piece of the status page short, including the settings form). One call may produce up to sizeof(b) - 1 characters.
+  void f(PGM_P fmt, ...) {
+    va_list ap, ap2;
     va_start(ap, fmt);
-    int l = vsnprintf_P(t, sizeof(t), fmt, ap);
+    va_copy(ap2, ap);
+    size_t room = sizeof(b) - n;
+    int l = vsnprintf_P(b + n, room, fmt, ap);
+    if (l >= 0 && (size_t)l >= room) {            // does not fit behind what is buffered: send that first, format again
+      flush();
+      l = vsnprintf_P(b, sizeof(b), fmt, ap2);
+    }
+    va_end(ap2);
     va_end(ap);
-    if (l > 0) put(t, (size_t)(l < (int)sizeof(t) ? l : (int)sizeof(t) - 1));
+    if (l > 0) n = (uint16_t)(n + (size_t)l < sizeof(b) ? n + (size_t)l : sizeof(b) - 1);
   }
 };
 
@@ -511,16 +519,15 @@ static void handleRoot() {
 
   // ---- settings
   const GqSettings& st = prefs::settings();
-  o.f(PSTR("<div class='box'><form method='post' action='/settings' style='display:block'><input type='hidden' name='f' value='1'>Brightness (0-100)<input name='bl' value='%d'>"
-           "Colour depth (0-100, higher = deeper colours, fixes washed-out look)<input name='depth' value='%d'>Time zone (POSIX TZ, e.g. &lt;-03&gt;3 for UTC-3)<input name='tz' value='"),
-      lcd::brightness(), s_depth);
+  o.f(PSTR("<div class='box'><form method='post' action='/settings' style='display:block'><input type='hidden' name='f' value='1'>Brightness (0-100)<input name='bl' value='%d'>"), lcd::brightness());
+  o.f(PSTR("Colour depth (0-100, higher = deeper colours, fixes washed-out look)<input name='depth' value='%d'>Time zone (POSIX TZ, e.g. &lt;-03&gt;3 for UTC-3)<input name='tz' value='"), s_depth);
   o.esc(s_tz);
-  o.f(PSTR("'>Info card every (minutes, 0 = off)<input name='card' value='%u'>"
-           "<label><input type='checkbox' name='maint' value='1'%s> Weekly maintenance restart (about 04:00)</label><br>"
-           "<label><input type='checkbox' name='night' value='1'%s> Quiet at night</label><br>"
-           "<button>Apply</button> <small>Kept in the clock's memory (survives restarts and updates, not unplugging).</small></form>"
-           "<form method='post' action='/reset_settings' onsubmit=\"return confirm('Put brightness, colour depth, time zone and card period back to defaults?')\"><button>Reset settings</button></form></div>"),
-      (unsigned)st.card_period, (st.flags & GQS_FLAG_MAINT) ? " checked" : "", (st.flags & GQS_FLAG_NIGHT) ? " checked" : "");
+  o.f(PSTR("'>Info card every (minutes, 0 = off)<input name='card' value='%u'>"), (unsigned)st.card_period);
+  o.f(PSTR("<label><input type='checkbox' name='maint' value='1'%s> Weekly maintenance restart (about 04:00)</label><br>"
+           "<label><input type='checkbox' name='night' value='1'%s> Quiet at night</label><br>"),
+      (st.flags & GQS_FLAG_MAINT) ? " checked" : "", (st.flags & GQS_FLAG_NIGHT) ? " checked" : "");
+  o.p(PSTR("<button>Apply</button> <small>Kept in the clock's memory (survives restarts and updates, not unplugging).</small></form>"
+           "<form method='post' action='/reset_settings' onsubmit=\"return confirm('Put brightness, colour depth, time zone and card period back to defaults?')\"><button>Reset settings</button></form></div>"));
   o.p(PSTR("<div class='box'>Display test (only if colours look wrong; not saved):<br><br>"
            "<a href='/display?madctl=0'>RGB order</a> <a href='/display?madctl=8'>BGR order</a> "
            "<a href='/display?inv=1'>Inversion on</a> <a href='/display?inv=0'>Inversion off</a></div>"
