@@ -302,6 +302,15 @@ static void t_blockers() {
     s.tick(100); CHECK(s.last_state == SF_AWAKE && s.f.hero_mode == 0);
     s.in.sleep_min = 100; s.in.wake_min = 1500;
     s.tick(100); CHECK(s.last_state == SF_AWAKE && s.f.hero_mode == 0);
+    // "Sleep now" still works with the schedule off: bed, then screen off, until the wake time; "Wake now" ends it
+    Sim u(SF_BK_USER, 5, HH(19, 30) * 60, HH(23, 30), HH(7, 0));
+    u.in.enabled = 0;
+    u.tick(30); CHECK(u.last_state == SF_AWAKE);
+    u.step(SF_CMD_SLEEP); u.ms += 1000; u.wall += 1;
+    CHECK(u.f.hero_mode == 2);
+    u.tick(30); CHECK(u.last_state == SF_ASLEEP && u.f.screen_off == 1);
+    u.step(SF_CMD_WAKE); u.ms += 1000; u.wall += 1; u.tick(3);
+    CHECK(u.last_state == SF_AWAKE);
     // switching the schedule off while asleep wakes at once
     Sim t(SF_BK_USER, 5, HH(3, 0) * 60, HH(23, 30), HH(7, 0));
     t.tick(SF_GRACE_MS / 1000 + 200);

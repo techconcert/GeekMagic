@@ -58,7 +58,7 @@ REQUIRED_STRINGS = [
     (b"GQ-RECOVERY-REV", "recovery revision tag"),
     (b"/safemode", "safe mode route"),
     (b"Stock data sector 0x3FA000", "read-only probe of the stock data sector"),
-    (b"Spare sector 0xFF000", "read-only probe of the spare sector below the file system"),
+    (b"Free sector 0x80000", "read-only probe of the free sector between the image and a staged update"),
     (b"/wifi", "WiFi setup route"),
 ]
 CONFIG_PAGE_STRING = (b"/config", "R3 settings page route")

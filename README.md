@@ -2,13 +2,17 @@
 
 A self-playing pixel-art village game for the GeekMagic 240x240 ESP8266 clock. A small
 adventurer takes breaks from questing to wander the village, chop wood, fish, trade and
-chat. You never press anything: it is a clock with a little world in it. The bottom band
-shows what the hero is doing right now, the clock's IP address and the uptime.
+chat. You never press anything: it is a clock with a little world in it. The top bar shows the
+time, the real weather outside (icon and temperature for the place you choose) and the season. The
+bottom band shows what the hero is doing right now, the clock's IP address and the uptime. At night
+(or in the hours you choose) the hero goes to bed and the screen goes dark until the wake time.
 
 **Download:** every build of the `main` branch is published on the
-[Releases page](https://github.com/techconcert/GeekMagic/releases) (the newest release is marked
-"Latest"). Each release has the two firmware files, `preview.html` (the game in your browser)
-and `SHA256SUMS.txt`.
+[Releases page](https://github.com/techconcert/GeekMagic/releases). Releases are named by number
+(**GeekQuest r4**, r5, ...; the number lives in the `VERSION` file) and the newest is marked
+"Latest". Each release has the two firmware files, `preview.html` (the game in your browser)
+and `SHA256SUMS.txt`. The file names also carry the short commit, for example
+`SDP_GeekQuest_quest_r4-1a2b3c4.bin`.
 
 ## Hardware
 
@@ -40,6 +44,27 @@ before switching over. A failed or interrupted upload leaves the running firmwar
 
 Read [docs/RECOVERY.md](docs/RECOVERY.md) once, before the first install.
 
+## The clock's web pages
+
+Open `http://<clock IP>/`. The status page shows firmware, WiFi, network health, memory and
+uptime. **Update firmware** and **Clock settings** are buttons in the first tile, **WiFi setup** is
+in the Network tile.
+
+**Clock settings** (`/config`):
+
+- **Weather:** search a city (foreign places work), or type latitude and longitude. Celsius is the
+  default, Fahrenheit is an option. The clock asks [Open-Meteo](https://open-meteo.com/) (free, no
+  account, plain HTTP) every 30 minutes and shows the icon and temperature on the top bar; the game
+  weather follows it.
+- **Sleep:** a sleep time and a wake time. The hero walks home and goes to bed, the screen and
+  game go dark, the CPU slows down, and the clock keeps the time. At the wake time everything
+  comes back by itself with the hero up. **Sleep now** and **Wake now** buttons are there too.
+  WiFi, the web pages and the update page stay on while asleep.
+- Brightness, colour depth, time zone and the info-card interval are on the status page.
+
+Settings live in the clock's RTC memory: they survive restarts, crashes and firmware updates, not
+unplugging.
+
 ## Recovery and the rescue hotspot
 
 Every build contains, and CI refuses to produce a `.bin` without (`tools/check_bin.py`):
@@ -62,10 +87,11 @@ Every build contains, and CI refuses to produce a `.bin` without (`tools/check_b
   flash by itself (only the update page's Updater does), and CI forbids EEPROM, LittleFS and SPIFFS
   code. Flashing `SDPro_V1.0.6_....bin` from the GeekQuest update page brings the original clock
   back.
-- **The game is not saved.** After any restart or power cut the game starts on day 1. Only the
-  settings (time zone, brightness, colour depth, card period) are kept in RTC memory across
-  restarts and updates. The status page reports, read only, what flash sectors 0x3FA000 (stock data) and 0xFF000 (spare) contain:
-  a later release may use it.
+- **Nothing is saved to flash yet.** After a power cut the game starts on day 1 and the settings
+  go back to defaults; restarts and updates keep the settings (RTC memory). The status page
+  reports, read only, what flash sectors 0x3FA000 (stock data, never written) and 0x80000 (free,
+  between the image and a staged update) contain. A later release may keep settings and game in
+  0x80000, only after you have seen it blank on your clock and approved.
 
 Gates: `tools/lint_safety.py`, `tools/check_bin_selftest.py`, `tools/check_bin.py` on every `.bin`,
 a size report, and `tools/recovery_guard.py` (a `RECOVERY-CHANGE:` commit line and a new
@@ -92,6 +118,9 @@ python3 tools/check_bin_selftest.py
 ```
 
 Browser preview (clang with wasm32 and lld): `tools/build_preview.sh` writes `preview/dist/index.html`.
+The preview is the same game core as the clock, plus a debug panel that is not in the firmware: pick
+the season, weather, a festival, live weather and sleep mode, start any quest, open the info cards,
+and **send the hero on a mission** (cave, shop, forest, fishing, bed and so on) to see each scene.
 
 Art: tiles and sprites are `assets/src/*.png` on a 16x16 grid with the 16-colour palette in
 `tools/palette.py`. After editing run `python tools/png2tiles.py`.
@@ -99,12 +128,14 @@ Art: tiles and sprites are `assets/src/*.png` on a 16x16 grid with the 16-colour
 ## Repository layout
 
 ```
-firmware/        ESP8266 entry (main.cpp), ST7789 driver, recovery layer (safety.cpp, netwatch.cpp), prefs.cpp
+firmware/        ESP8266 entry (main.cpp), ST7789 driver, recovery layer (safety.cpp, netwatch.cpp), prefs.cpp,
+                 weather (wxnet.cpp), sleep schedule (nightmode.cpp), settings page (config.cpp)
 lib/gamecore/    portable game core (no heap, no libc), used by the firmware and the preview
 lib/gqsafe/      pure decision code of the recovery layer (boot counters, WiFi ladder, upload checks)
 assets/src/      editable PNG sheets
 tools/           asset converter, version stamp, .bin safety checks, source lint, CI guards
-docs/            design notes, the owner's recovery guide
+content/talk/    villager dialogue scripts (compiled into the firmware by tools/gen_talk.py)
+docs/            design notes (DESIGN.md, DESIGN-R3.md), the owner's recovery guide
 preview/         browser preview (WebAssembly)
 test/            host tests
 ```

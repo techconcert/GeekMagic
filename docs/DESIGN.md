@@ -3,7 +3,31 @@
 > **R2 note.** Release R2 removed the save/backup/restore system described in sections 8.8 and 9 (gc_save_*, persist.*, the flash journal, /backup, /save, /factory, /quarantine, approval A1), turned approval A2 (automatic restarts) on, moved the display-test scene behind `GQ_TEST_SCENE` (env:test only) and replaced the goal band with a status band (hero state, IP address, uptime). Where this document disagrees, docs/RECOVERY.md and the code are right.
 
 
-Status: DESIGN ONLY. Nothing in this document is implemented yet. No code was changed to write it.
+## Status against this design (updated for R4)
+
+The design below was written before any code. Everything in it is now built except what is listed here. Where this document and the code disagree, the code, docs/RECOVERY.md and docs/DESIGN-R3.md are right.
+
+**Built and running on the clock:** the village game (8 named villagers and the cat, critters and monsters, 8 areas, 16 hero activities, quests and story, seasons, 7 weather states, 4 festivals, daily events, friendship, collection and achievements, info cards), the recovery layer, the WiFi ladder, and the strip renderer.
+
+**Changed by the owner after the design:**
+
+| Design said | Now |
+|---|---|
+| Section 6.7: real-world weather is out of scope | R3 added live weather from Open-Meteo (plain HTTP, every 30 minutes, city or coordinates, C or F, icon and temperature on the top bar). The simulated weather runs underneath and is used when there is no fresh reading. |
+| Sections 8.8 and 9: save, backup, restore, flash journal | Removed in R2 by the owner. Settings live in RTC memory only. |
+| Section 9 stage P1 (flash sector 0x3FA000) | The sector holds stock data and must never be written. The R3 probe of 0xFF000 showed it is in use (updates are staged at the top of the program area). R4 probes 0x80000 instead, read only. |
+| Goal band at the bottom | Status band: hero state, IP address, uptime (R2). |
+| Dialogue lines from a small ambient list | Scripted conversations in `content/talk/*.txt`, 224 scripts, built into the firmware by `tools/gen_talk.py` (R3). |
+| (not in the design) | Sleep schedule with sleep and wake time, the `/config` page, release names "GeekQuest rN" (R3, R4). |
+
+**Not built yet (open items):**
+
+1. Keeping settings and the game across a power cut. Needs a flash sector that is safe from updates; 0x80000 is the candidate and needs the owner's approval after the probe shows it blank.
+2. Strict upload checks (approval A4 is still off; the checks are computed and shown, not enforced).
+3. Art compression and other size work: the image is 450 KB of the 500 KB limit, and about 80% of it is the WiFi stack and Arduino core that cannot shrink.
+4. The hero chats a very large number of times per day; a per-villager cooldown is planned.
+5. The unit runs a little warm; not investigated.
+
 Audience: the user (owner of the clock) and the engineers (coding models) who implement the chunks in section 11.
 
 Words used in a fixed sense:

@@ -19,7 +19,7 @@ void apply(bool display, bool game);
 
 // One line for the status page, e.g. "Save sector 0x3FA000: blank." Read only. buf is plain text.
 void probeText(char* buf, size_t n);
-// RECOVERY-CHANGE (R3-0F): same for the last sector of the program area, 0xFF000, with where the image ends. Read only. buf >= 160.
+// RECOVERY-CHANGE (R3-0F): same for sector 0x80000 of the program area (between the image and a staged update), with where the image ends. Read only. buf >= 160.
 void spareText(char* buf, size_t n);
 
 }  // namespace prefs

@@ -15,7 +15,7 @@ namespace prefs {
 static const uint32_t RTC_SET = 80;
 static const uint32_t SAVE_ADDR = 0x3FA000UL;   // the 4 KB gap between stock's file system and its EEPROM sector
 
-static const uint32_t SPARE_ADDR = 0xFF000UL;   // last sector of the 1 MB program area (read-only probe, R3-0F)
+static const uint32_t SPARE_ADDR = 0x80000UL;   // middle of the 1 MB program area: above any image (cap 500 KB) and below any staged update (read-only probe, R4)
 
 static void hexHead(const uint8_t* head, char* hex) {
   for (int i = 0; i < 16; i++) {
@@ -94,7 +94,8 @@ void probeText(char* buf, size_t n) {
   }
 }
 
-// RECOVERY-CHANGE (R3-0F): second read-only probe, the last sector of the 1 MB program area (just below _FS_start).
+// RECOVERY-CHANGE (R4): second read-only probe. R3 showed 0xFF000 is in use (the update upload is staged at the top of the program area), so
+// the probe moved to 0x80000: above the running image (at most 500 KB) and below the lowest start of a staged update (1 MB minus 500 KB).
 void spareText(char* buf, size_t n) {
   alignas(4) uint8_t b[64];
   uint8_t head[16];
@@ -117,8 +118,8 @@ void spareText(char* buf, size_t n) {
     hexHead(head, hex);
     snprintf_P(state, sizeof(state), PSTR("in use (first 16 bytes %s)"), hex);
   }
-  snprintf_P(buf, n, PSTR("Spare sector 0xFF000: %s. Image ends at 0x%X, %s."), state, (unsigned)end,
-             end > SPARE_ADDR ? "so this sector is inside the running image" : "this sector is above it, where an update upload may be staged");
+  snprintf_P(buf, n, PSTR("Free sector 0x80000: %s. Image ends at 0x%X, %s."), state, (unsigned)end,
+             end > SPARE_ADDR ? "so this sector is inside the running image" : "this sector is above it and below where an update upload is staged");
 }
 
 }  // namespace prefs

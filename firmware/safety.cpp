@@ -53,7 +53,7 @@ static const uint32_t AP_GRACE_MS = 10UL * 60 * 1000;  // AP stays up 10 min aft
 // RECOVERY-CHANGE (chunk1): CRASHES_FOR_* moved to lib/gqsafe/src/bootlogic.h
 // RECOVERY-CHANGE (chunk1): revision 2 = chunk 1 (design 8.10 rule 6); 3 = R2 (no game saving, automatic restarts on)
 // RECOVERY-CHANGE (R3-0F): revision 5 = R3 plumbing (web() accessor, webout.h, weather strike words, boot kind, spare sector probe)
-static const uint32_t GQ_RECOVERY_REV = 6;
+static const uint32_t GQ_RECOVERY_REV = 7;
 // RECOVERY-CHANGE (chunk1): timers of the restart gates
 static const uint32_t SLOW_STABLE_MS = 6UL * 3600 * 1000;   // `slow` counter cleared after 6 h of uptime
 static const uint32_t AUTO_MIN_UPTIME_MS = 30UL * 60 * 1000;
@@ -496,7 +496,11 @@ static void handleRoot() {
         (unsigned)ri->exccause, (unsigned)ri->epc1, (unsigned)ri->excvaddr, (unsigned)ri->depc);
     o.f(PSTR("<tr><td>Boot stage at crash</td><td>%u</td></tr>"), (unsigned)s_lastStage);
   }
-  o.p(PSTR("</table></div>"));
+  o.p(PSTR("</table><p><a href='/update'>Update firmware</a>"));
+#if GQ_HAVE_CONFIG_PAGE
+  if (!s_safe) o.p(PSTR(" <a href='/config'>Clock settings</a>"));
+#endif
+  o.p(PSTR("</p></div>"));
 
   // ---- network (design 7.4)
   o.f(PSTR("<div class='box'><b>Network</b><table><tr><td>Ladder</td><td>stage %u, attempts %u, down %u s, last reason %u</td></tr>"),
@@ -511,7 +515,7 @@ static void handleRoot() {
   o.f(PSTR("<tr><td>Reconnects</td><td>%u since power-on, WiFi restarts %u</td></tr></table><small>Events:<br>"),
       (unsigned)netwatch::reconnects(), (unsigned)s_r2.wifiRestarts);
   for (uint8_t i = 0; i < 8 && netwatch::eventLine(i, tmp, sizeof(tmp)); i++) { o.s(tmp); o.p(PSTR("<br>")); }
-  o.p(PSTR("</small></div>"));
+  o.p(PSTR("</small><p><a href='/wifi'>WiFi setup</a></p></div>"));
 
   // ---- health
   uint32_t up = (millis() - s_bootMs) / 1000;
@@ -525,7 +529,7 @@ static void handleRoot() {
     prefs::probeText(pt, sizeof(pt));
     o.p(PSTR("<div class='box'><small>")); o.esc(pt); o.p(PSTR("</small></div>"));
   }
-  {                                       // RECOVERY-CHANGE (R3-0F): second read-only probe (program area, 0xFF000) and the R3 hook lines
+  {                                       // RECOVERY-CHANGE (R3-0F): second read-only probe (program area, 0x80000) and the R3 hook lines
     char pt[176];
     prefs::spareText(pt, sizeof(pt));
     o.p(PSTR("<div class='box'><small>")); o.esc(pt); o.p(PSTR("</small></div>"));
@@ -535,11 +539,6 @@ static void handleRoot() {
       o.p(PSTR("</small></div>"));
     }
   }
-  o.p(PSTR("<p><a href='/update'>Update firmware</a> <a href='/wifi'>WiFi setup</a>"));
-#if GQ_HAVE_CONFIG_PAGE
-  if (!s_safe) o.p(PSTR(" <a href='/config'>Clock settings</a>"));
-#endif
-  o.p(PSTR("</p>"));
 
   // ---- settings
   const GqSettings& st = prefs::settings();

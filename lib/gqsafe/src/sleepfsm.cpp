@@ -52,7 +52,8 @@ uint8_t sleepfsm_step(SleepFsm* f, const SleepIn* in) {
   }
 
   if (in->safe_mode) { sf_reset(f, 0); return f->state; }
-  if (!enabled)      { sf_reset(f, 0); f->hold_done = 1; return f->state; }   // built-in night, screen on, as before R3
+  // "Sleep now" works with the schedule switched off too; without it (or once it ran out) it is the built-in night, screen on.
+  if (!enabled && !f->force_active && !(cmd == SF_CMD_SLEEP && valid)) { sf_reset(f, 0); f->hold_done = 1; return f->state; }
 
   if (!f->hold_done) {
     if (f->boot_kind == SF_BK_AUTO && !valid && now - f->start < SF_HOLD_MS) {

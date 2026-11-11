@@ -26,7 +26,7 @@ small a{background:none;color:#e89a3c;padding:0}h3{margin:0}[hidden]{display:non
 <p><small>Weather data by <a href="https://open-meteo.com/">Open-Meteo.com</a> (CC BY 4.0), every 30 minutes, place rounded to about 1 km.</small></p></div>
 <div class="box"><h3>Sleep</h3>
 <label class="c"><input type="checkbox" name="sl" value="1" id="sl"> Use sleep schedule</label>
-<label class="c">Sleep time<input type="time" name="st" id="st"></label><label class="c">Wake time<input type="time" name="wt" id="wt"></label>
+<label class="c">Sleep time<input type="time" name="st" id="st" oninput="$('sl').checked=true"></label><label class="c">Wake time<input type="time" name="wt" id="wt" oninput="$('sl').checked=true"></label>
 <p><button type="button" data-u="/config/night" data-c="wake">Wake now</button> <button type="button" data-u="/config/night" data-c="sleep">Sleep now</button></p></div>
 <div class="box"><small id="stor"></small></div>
 <p><button>Save settings</button> <a href="/">Back</a></p><div id="msg" role="status"></div></form>

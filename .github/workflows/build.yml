@@ -147,6 +147,7 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4          # for the VERSION file (release name)
       - uses: actions/download-artifact@v4
         with:
           path: out
@@ -180,16 +181,15 @@ jobs:
         run: |
           set -e
           SHORT=$(echo "${{ github.sha }}" | cut -c1-7)
-          TAG="r-$SHORT"
+          REL=$(tr -d ' \r\n' < VERSION)
+          TAG="$REL"
           mkdir -p rel
           cp out/GeekQuest-firmware/*.bin rel/
           cp out/GeekQuest-preview/index.html rel/preview.html
           (cd rel && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt)
-          NOTES="GeekQuest build $SHORT (commit ${{ github.sha }}).
+          NOTES="GeekQuest $REL, build $SHORT (commit ${{ github.sha }}).
 
           Flash SDP_GeekQuest_quest_*.bin (the game) on the clock's update page (http://<clock IP>/update, or http://192.168.4.1/update on the GEEKQUEST-XXXX rescue network). SDP_GeekQuest_test_*.bin is the display test build. Check the SHA256 sums in SHA256SUMS.txt. Read docs/RECOVERY.md before installing."
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" rel/* --clobber
-          else
-            gh release create "$TAG" rel/* --target "${{ github.sha }}" --title "GeekQuest $SHORT" --notes "$NOTES" --latest
-          fi
+          # A later push of the same release number replaces the release, so the page always holds the newest files.
+          if gh release view "$TAG" >/dev/null 2>&1; then gh release delete "$TAG" --cleanup-tag -y; fi
+          gh release create "$TAG" rel/* --target "${{ github.sha }}" --title "GeekQuest $REL" --notes "$NOTES" --latest
