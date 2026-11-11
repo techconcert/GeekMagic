@@ -2,6 +2,7 @@
 // timing, banners, steady-state dirty budget, card scheduling.
 #include "gq_test.h"
 #include "../lib/gamecore/src/gc_internal.h"
+#include "../lib/gamecore/src/gq_mod.h"
 
 extern void ui_debug_show_card(int id);
 extern "C++" const char* ui_band_text(void);
@@ -372,6 +373,117 @@ static void test_status_band() {
   std::printf("status band ok\n");
 }
 
+// ---- R3 HUD with live weather (design 2.7, 9.3)
+static void hud_render(uint16_t* buf, int wx, int t10, int flags) {
+  gc_set_live_weather(wx, t10, flags);
+  for (int i = 0; i < 2; i++) gc_tick(100);
+  GqLook lk;
+  cal_look(&lk);
+  for (int g = 0; lk.tr == 320 && g < 20; g++) { gc_tick(100); cal_look(&lk); }   // not inside a lightning flash
+  gqt::render_strip_guarded(0);
+  std::memcpy(buf, gqt::strip, GC_STRIP_PIXELS * sizeof(uint16_t));
+}
+// Leftmost and rightmost column in which two renders differ (lo 999 when identical).
+static int hud_diff(const uint16_t* a, const uint16_t* b, int* hi) {
+  int lo = 999;
+  *hi = -1;
+  for (int y = 0; y < GC_STRIP_H; y++)
+    for (int x = 0; x < GC_W; x++)
+      if (a[y * GC_W + x] != b[y * GC_W + x]) { if (x < lo) lo = x; if (x > *hi) *hi = x; }
+  return lo;
+}
+static int hud_ink(const uint16_t* a, const uint16_t* bg, int x0, int x1) {
+  int n = 0;
+  for (int y = 0; y < GC_STRIP_H; y++)
+    for (int x = x0; x <= x1; x++) if (a[y * GC_W + x] != bg[y * GC_W + x]) n++;
+  return n;
+}
+static uint16_t hbase[GC_STRIP_PIXELS], hcur[GC_STRIP_PIXELS], hprev[GC_STRIP_PIXELS];
+
+static void test_hud_weather() {
+  gc_init(GC_SCENE_VILLAGE, 3, 0);
+  gc_set_clock(10, 42, 1);
+  gc_set_net(GC_NET_ONLINE);
+  gc_set_status(0, "IP 192.168.1.50");
+  gc_debug(GQ_DBG_SET_DAY, 21);                               // winter: live snow and simulated snow look alike
+  // nothing left of the weather icon and no clock pixel (x >= 178) changes, for every state, unit and temperature
+  // (the base is the same state without live data: the simulated machine set to it)
+  for (int wx = 0; wx < GQ_W_COUNT; wx++) {
+    gc_debug(GQ_DBG_SET_WEATHER, wx);
+    hud_render(hbase, GC_WX_NONE, 0, 0);
+    for (int fl = 0; fl < 8; fl++) {
+      for (int t = -99; t <= 199; t += (fl < 2 ? 1 : 11)) {
+        int t10 = (fl & GC_WXF_FAHRENHEIT) ? ((t - 32) * 50 / 9) : t * 10;   // displays about t in the unit
+        if (t10 < -999 || t10 > 999) continue;
+        int hi, lo = 0;
+        for (int tries = 0; tries < 4; tries++) {  // base and live renders are a tick apart: a coin may move in between
+          hud_render(hbase, GC_WX_NONE, 0, 0);
+          hud_render(hcur, wx, t10, fl);
+          lo = hud_diff(hbase, hcur, &hi);
+          if (lo >= 100) break;
+        }
+        if (lo < 100) std::printf("wx %d fl %d t %d lo %d hi %d\n", wx, fl, t, lo, hi);
+        CHECK(lo >= 100);
+        for (int y = 0; y < GC_STRIP_H; y++)
+          for (int x = 178; x < GC_W; x++) CHECK(hbase[y * GC_W + x] == hcur[y * GC_W + x]);
+      }
+    }
+  }
+  gc_debug(GQ_DBG_SET_WEATHER, GQ_W_CLOUDY);
+  hud_render(hbase, GC_WX_NONE, 0, 0);
+  // changing only the number moves pixels only inside its three cells 117..153
+  hud_render(hprev, GQ_W_CLOUDY, 70, 0);
+  for (int t = -99; t <= 99; t++) {
+    hud_render(hcur, GQ_W_CLOUDY, t * 10, 0);
+    int hi, lo = hud_diff(hprev, hcur, &hi);
+    if (lo != 999) CHECK(lo >= 117 && hi <= 153);
+  }
+  hud_render(hprev, GQ_W_CLOUDY, 999, 0);
+  hud_render(hcur, GQ_W_CLOUDY, -999, 0);
+  { int hi, lo = hud_diff(hprev, hcur, &hi); CHECK(lo >= 117 && hi <= 153); }
+  // the unit letter changes only inside 154..158
+  hud_render(hprev, GQ_W_CLEAR, 230, 0);
+  hud_render(hcur, GQ_W_CLEAR, 230, GC_WXF_FAHRENHEIT);
+  { int hi, lo = hud_diff(hprev, hcur, &hi); CHECK(lo >= 117 && hi <= 158); }
+  // temperature, unit, season block and clock are all present, with gaps 159..162 and 174..177 between them
+  hud_render(hcur, GQ_W_CLEAR, 230, 0);
+  CHECK(hud_ink(hcur, hbase, 117, 153) > 20);
+  CHECK(hud_ink(hcur, hbase, 154, 158) > 8);
+  CHECK(hud_ink(hcur, hbase, 159, 162) == 0);
+  CHECK(hud_ink(hcur, hbase, 174, 177) == 0);
+  hud_render(hprev, GC_WX_NONE, 0, 0);
+  CHECK(hud_ink(hprev, hbase, 0, 239) == 0);
+  // stale is drawn grey, fresh white: same shape, different colour, only in the temperature area
+  hud_render(hprev, GQ_W_RAIN, 230, 0);
+  hud_render(hcur, GQ_W_RAIN, 230, GC_WXF_STALE);
+  { int hi, lo = hud_diff(hprev, hcur, &hi); CHECK(lo >= 117 && hi <= 158); }
+  // the moon replaces the sun for CLEAR at night only
+  hud_render(hprev, GQ_W_CLEAR, 100, 0);
+  hud_render(hcur, GQ_W_CLEAR, 100, GC_WXF_NIGHT);
+  { int hi, lo = hud_diff(hprev, hcur, &hi); CHECK(lo >= 100 && hi <= 116); }
+  hud_render(hprev, GQ_W_RAIN, 100, 0);
+  hud_render(hcur, GQ_W_RAIN, 100, GC_WXF_NIGHT);
+  { int hi, lo = hud_diff(hprev, hcur, &hi); CHECK(lo == 999); }
+  // WiFi down: the red "!" takes the place of the season block, nothing reaches the clock
+  hud_render(hprev, GQ_W_RAIN, 100, 0);
+  gc_set_net(GC_NET_OFFLINE);
+  hud_render(hcur, GQ_W_RAIN, 100, 0);
+  gc_set_net(GC_NET_ONLINE);
+  { int hi, lo = hud_diff(hprev, hcur, &hi); CHECK(lo >= 163 && hi <= 175); }
+  // leaving live mode restores the base render
+  hud_render(hcur, GQ_W_RAIN, 230, 0);
+  hud_render(hcur, GC_WX_NONE, 0, 0);
+  CHECK(std::memcmp(hcur, hbase, sizeof(hcur)) == 0);
+  // the strip is redrawn when the temperature, unit or age class changes
+  gc_set_live_weather(GQ_W_RAIN, 100, 0);
+  for (int i = 0; i < 3; i++) gc_tick(100);
+  gc_clear_dirty();
+  gc_set_live_weather(GQ_W_RAIN, 110, 0);     gc_tick(100); CHECK(gc_dirty_mask() & 1u); gc_clear_dirty();
+  gc_set_live_weather(GQ_W_RAIN, 110, 1);     gc_tick(100); CHECK(gc_dirty_mask() & 1u); gc_clear_dirty();
+  gc_set_live_weather(GQ_W_RAIN, 110, 1 | 4); gc_tick(100); CHECK(gc_dirty_mask() & 1u); gc_clear_dirty();
+  std::printf("hud weather ok\n");
+}
+
 int main() {
   test_fmt();
   test_palette();
@@ -382,6 +494,7 @@ int main() {
   test_budget();
   test_schedule();
   test_scenes();
+  test_hud_weather();
   std::printf("PASS\n");
   return 0;
 }

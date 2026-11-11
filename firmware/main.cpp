@@ -49,6 +49,13 @@ static void updateStatus() {
   // RECOVERY-CHANGE (chunk1): gc_set_net exists since chunk 0 (the old GQ_HAVE_SET_NET guard never fired)
   gc_set_net(safety::staConnected() ? GC_NET_ONLINE : (safety::apActive() ? GC_NET_AP_ONLY : GC_NET_OFFLINE));
 
+  // RECOVERY-CHANGE (W2): the live reading (if any) replaces the simulated weather in the core; none = simulated
+  {
+    int wx = GC_WX_NONE, t10 = 0, wf = 0;
+    if (!wxnet::reading(&wx, &t10, &wf)) { wx = GC_WX_NONE; t10 = 0; wf = 0; }
+    gc_set_live_weather(wx, t10, wf);
+  }
+
   // date (design 5.1, 7.3)
   int h, m;
   if (safety::localTime(h, m)) {
@@ -102,7 +109,7 @@ void loop() {
     prevEntry = e;
   }
   config::loop();                        // RECOVERY-CHANGE (R3-0F): R3 modules, each does its work at most once a second
-  wxnet::loop();                         // (the live reading reaches the core through updateStatus() in chunk W2)
+  wxnet::loop();                         // (the live reading reaches the core through updateStatus())
   nightmode::loop();
   if (!s_display || safety::updating()) { delay(2); return; }
   // RECOVERY-CHANGE (R3-0F): while the screen is off the game ticks 4 times a second and nothing is rendered
