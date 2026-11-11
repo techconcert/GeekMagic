@@ -86,9 +86,16 @@ static void begin(Actor* h, int act) {
   T.on = 0;
 }
 
+static void say_hero(const char* t, int ms);
+
 static void finish(Actor* h) {
   clear_talk();
   tidy(h);
+  // after-action remark (what the hero just did, from the dialogue engine), about one time in three
+  if (h->visible && !ui_busy() && h->act != GQ_ACT_CHAT && h->act != GQ_ACT_GIFT && rnd_range(0, 2) == 0) {
+    char rb[40];
+    if (talk_solo(TALK_SOLO_DID, rb, 40) && rb[0]) say_hero(rb, 2200);
+  }
   s_last2 = s_last1; s_last1 = h->act;
   h->act = ACT_NONE; h->phase = 0; h->counter = 0;
   h->timer = rnd_range(800, 2500);

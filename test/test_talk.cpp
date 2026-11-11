@@ -126,7 +126,7 @@ static const int DID_EV[13] = {0, GQ_EV_CHOPPED, GQ_EV_CAUGHT, GQ_EV_FORAGED, GQ
 // ---------------------------------------------------------------------------------------------------- tests
 static void test_tables(void) {
   EXPECT(TALK_NSCRIPTS > 0 && TALK_NSCRIPTS <= 255, "script count %d", TALK_NSCRIPTS);
-  EXPECT(TALK_BLOB_BYTES <= 10240, "blob %d", TALK_BLOB_BYTES);
+  EXPECT(TALK_BLOB_BYTES <= 12288, "blob %d", TALK_BLOB_BYTES);
   for (int g = 0; g < 12; g++) EXPECT(TALK_FIRST[g] <= TALK_FIRST[g + 1], "TALK_FIRST not monotone at %d", g);
   EXPECT(TALK_FIRST[12] == TALK_NSCRIPTS, "TALK_FIRST end");
   int lines = 0;

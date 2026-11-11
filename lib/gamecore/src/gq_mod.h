@@ -62,8 +62,6 @@ void quest_on_event(int ev, int a, int b);
 int  quest_need(GqNeed* out);                    // kind != NONE when the hero can make progress now
 int  quest_talk(int npc, char* buf, int cap);    // hero talks to npc: returns 1 and a line if the quest system has
                                                  // something to say (offer, progress, thanks); else 0
-void quest_ambient_line(int npc, char* buf, int cap);   // ordinary chat line (season, weather, friendship aware)
-void quest_reply_line(char* buf, int cap);               // hero's reply
 int  quest_band(char* buf, int cap, int* num, int* den); // 1 = quest text for the band, with progress
 int  quest_title(char* buf, int cap);
 const char* gq_text(int id, char* buf, int cap); // copies string id from flash; returns buf
