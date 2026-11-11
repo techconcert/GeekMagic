@@ -64,10 +64,12 @@ REQUIRED_STRINGS = [
 CONFIG_PAGE_STRING = (b"/config", "R3 settings page route")
 
 # R3 adds: no TLS (BearSSL costs 60 to 90 KB of flash and heap the clock does not have), no second HTTP client stack, and no
-# sleep modes that would switch the radio off (deep sleep, forced and timed light sleep; the update page must stay reachable).
+# sleep modes that would switch the radio off (forced light sleep and the core's deepSleep wrapper; the update page must stay reachable).
+# The SDK's own system_deep_sleep*/wifi_fpm_do_sleep symbols are always linked from the closed libraries, so they cannot be
+# forbidden here: lint L10 forbids calling them from the sources.
 FORBIDDEN_SYMBOLS = re.compile(
     r"EEPROMClass|LittleFS|SPIFFS|spiffs_|ESP8266HTTPUpdate|ArduinoOTA|HTTPClient|(?<![a-z])lfs_"
-    r"|(?<![a-z])br_ssl_|WiFiClientSecure|AsyncClient|(?<![a-z])system_deep_sleep|(?<![a-z])wifi_fpm_do_sleep|forceSleepBegin|EspClass\w*deepSleep"
+    r"|(?<![a-z])br_ssl_|WiFiClientSecure|AsyncClient|forceSleepBegin|EspClass\w*deepSleep"
 )
 # R3 REQUIRED string for the settings page. Chunk P1 switches this to True in the commit that adds /config (together with
 # GQ_HAVE_CONFIG_PAGE in firmware/config.h); until then the stub build has no such page.

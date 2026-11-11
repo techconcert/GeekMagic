@@ -102,11 +102,11 @@ expect("GQJ1 and Save sector in any build", False, verdict(make(extra=b"GQJ1 Sav
 
 # ---- R3: no flash settings store, TLS, second HTTP client or radio-off sleep modes; the settings page string
 expect("GQF1 (flash settings store) in any build", False, verdict(make(extra=b"GQF1")))
-for sym in ("br_ssl_client_init_full", "_ZN9BearSSL.. br_ssl_engine_run", "_ZN16WiFiClientSecure7connectEv", "_ZN11AsyncClientC1Ev", "system_deep_sleep",
-            "wifi_fpm_do_sleep", "_ZN24ESP8266WiFiGenericClass15forceSleepBeginEj", "_ZN8EspClass9deepSleepEmN8RFMode"):
+for sym in ("br_ssl_client_init_full", "_ZN9BearSSL.. br_ssl_engine_run", "_ZN16WiFiClientSecure7connectEv", "_ZN11AsyncClientC1Ev",
+            "_ZN24ESP8266WiFiGenericClass15forceSleepBeginEj", "_ZN8EspClass9deepSleepEmN8RFMode"):
     expect(f"R3 forbidden symbol {sym}", False, verdict(make(), elf=elf(symbols=GOOD_ELF["symbols"] + [sym])))
 expect("harmless symbols near the R3 names", True,
-       verdict(make(), elf=elf(symbols=GOOD_ELF["symbols"] + ["br_sha256_update", "xbr_ssl_x", "system_update_cpu_freq", "wifi_set_sleep_type"])))
+       verdict(make(), elf=elf(symbols=GOOD_ELF["symbols"] + ["br_sha256_update", "xbr_ssl_x", "system_update_cpu_freq", "wifi_set_sleep_type", "system_deep_sleep", "wifi_fpm_do_sleep"])))
 old_req = check_bin.REQUIRE_CONFIG_PAGE
 try:
     check_bin.REQUIRE_CONFIG_PAGE = False
