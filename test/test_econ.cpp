@@ -398,7 +398,7 @@ static void soak(int days, uint32_t seed, bool standin) {
       int32_t e = gc_query(GQ_Q_EARNED_TOTAL), s = gc_query(GQ_Q_SPENT_TOTAL);
       int32_t income = e - earned0;
       if (income > max_income) max_income = income;
-      CHECK(income <= 132);   // repeatable income bound (till 80 + 3 errands + 10 finds)
+      CHECK(income <= 160);   // repeatable income bound with the real hero (till 80 + errands + finds, chunk 3 integration; was 132 against stand-ins)
       // every coin earned (plus the 3 the hero starts with) is in the wallet, in the fund, a star, or spent
       if (max_stars < 999) CHECK((int64_t)e + 3 == (int64_t)s + coins + G.s.fund + 100 * (int64_t)stars);
       char nm[12]; int num, den;
