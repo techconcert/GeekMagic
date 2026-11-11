@@ -6,7 +6,7 @@
 uint8_t  g_ground[GC_ROWS][GC_COLS];
 uint8_t  g_obj[GC_ROWS][GC_COLS];
 uint16_t g_pal[16];
-uint16_t g_act[16];     // palette for actors and items (for now a copy of g_pal)
+uint16_t g_act[16];     // palette for actors and items (wash and tint, no season remap)
 uint16_t g_ui[16];
 uint32_t g_dirty;
 char     g_status[4][32];
@@ -58,6 +58,8 @@ static void fmt2(char* p, int v) { p[0] = (char)('0' + (v / 10) % 10); p[1] = (c
 
 static int g_depth;                       // 0..100
 static int g_tr = 256, g_tg = 256, g_tb = 256;
+static int g_season, g_wash_k;            // g_wash_k 0..255
+static uint16_t g_wash_rgb;
 
 // y = x + (x*x - x) * depth, on a 0..1023 scale. depth 0 = unchanged.
 static inline int curve(int v, int maxv) {
@@ -66,31 +68,75 @@ static inline int curve(int v, int maxv) {
   return y * maxv / 1023;
 }
 
-void set_tint(int r256, int g256, int b256) {
-  g_tr = r256; g_tg = g256; g_tb = b256;
-  for (int i = 0; i < 16; i++) {
-    uint16_t c = GC_RD16(&GC_PALETTE[i]);
-    int r = curve((c >> 11) & 31, 31), g = curve((c >> 5) & 63, 63), b = curve(c & 31, 31);
-    g_ui[i] = (uint16_t)((r << 11) | (g << 5) | b);
-    r = r * r256 >> 8; g = g * g256 >> 8; b = b * b256 >> 8;
-    if (r > 31) r = 31;
-    if (g > 63) g = 63;
-    if (b > 31) b = 31;
-    g_pal[i] = (uint16_t)((r << 11) | (g << 5) | b);
-  }
-  g_pal[0] = g_ui[0] = 0;
-  for (int i = 0; i < 16; i++) g_act[i] = g_pal[i];
+// Season remap (design 5.2), world palette only: SEASON_REMAP[season][palette index].
+// Palette: 2 dark green, 3 green, 4 light green, 5 dark brown, 6 brown, 7 sand,
+// 10 light blue (foam), 12 red, 13 white, 14 grey, 15 yellow. Index 0 and 1 never move.
+static const uint8_t SEASON_REMAP[4][16] GC_ROM_ATTR = {
+  {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},      // spring: identity
+  {0, 1, 3, 4, 15, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},     // summer: warmer, dry
+  {0, 1, 5, 6, 15, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},     // autumn: brown and yellow
+  {0, 1, 14, 13, 10, 5, 6, 13, 8, 9, 10, 11, 12, 13, 14, 15},  // winter: grey, white, foam
+};
+
+// One channel of a colour: wash toward the wash colour, then tint, then the depth curve.
+static inline int chan(int v, int maxv, int wash, int k, int tint) {
+  v += (wash - v) * k / 256;
+  v = v * tint >> 8;
+  if (v > maxv) v = maxv;
+  if (v < 0) v = 0;
+  return curve(v, maxv);
 }
 
-// Look = palette inputs for this moment (design 6.2). For now only the tint is used.
-// Marks every strip dirty only when the quantised tint changed.
-static int g_look_key = -1;
+static uint16_t make_colour(uint16_t c, int wash_on, int tinted) {
+  int r = (c >> 11) & 31, g = (c >> 5) & 63, b = c & 31;
+  int k = wash_on ? g_wash_k : 0;
+  int tr = tinted ? g_tr : 256, tg = tinted ? g_tg : 256, tb = tinted ? g_tb : 256;
+  if (tr < 0) tr = 0;
+  if (tg < 0) tg = 0;
+  if (tb < 0) tb = 0;
+  r = chan(r, 31, (g_wash_rgb >> 11) & 31, k, tr);
+  g = chan(g, 63, (g_wash_rgb >> 5) & 63, k, tg);
+  b = chan(b, 31, g_wash_rgb & 31, k, tb);
+  return (uint16_t)((r << 11) | (g << 5) | b);
+}
+
+// Palette pipeline (design 6.2): base -> season remap (world only) -> wash -> tint -> depth curve.
+// g_pal = world, g_act = actors and items (no season remap), g_ui = HUD and text (depth curve only).
+static void build_palettes(void) {
+  const uint8_t* remap = SEASON_REMAP[g_season & 3];
+  for (int i = 0; i < 16; i++) {
+    g_ui[i] = make_colour(GC_RD16(&GC_PALETTE[i]), 0, 0);
+    g_act[i] = make_colour(GC_RD16(&GC_PALETTE[i]), 1, 1);
+    g_pal[i] = make_colour(GC_RD16(&GC_PALETTE[GC_RD8(&remap[i]) & 15]), 1, 1);
+  }
+  g_pal[0] = g_ui[0] = g_act[0] = 0;
+}
+
+void set_tint(int r256, int g256, int b256) {
+  g_tr = r256; g_tg = g256; g_tb = b256;
+  build_palettes();
+}
+
+// Look = palette inputs for this moment (design 6.2). Quantised: tint to 3 bits below the
+// 256 scale (steps of 8, about 5 bits), wash strength to 4 bits. Marks every strip dirty
+// only when the quantised look changed.
+static int32_t  g_look_key = -1;
+static uint16_t g_look_wash = 0;
 void gfx_set_look(const GqLook* look) {
   int r = look->tr, g = look->tg, b = look->tb;
-  int key = (r >> 3) << 12 | (g >> 3) << 6 | (b >> 3);   // ignore tiny changes
-  if (key == g_look_key) return;
+  int season = look->season & 3;
+  int wk = look->wash_k >> 4;                           // 0..15
+  uint16_t wrgb = wk ? look->wash_rgb565 : 0;
+  int32_t key = (int32_t)((((r >> 3) & 63) << 12) | (((g >> 3) & 63) << 6) | ((b >> 3) & 63)) |
+                ((int32_t)season << 18) | ((int32_t)wk << 20);
+  if (key == g_look_key && wrgb == g_look_wash) return;
   g_look_key = key;
-  set_tint(r, g, b);
+  g_look_wash = wrgb;
+  g_season = season;
+  g_wash_k = wk * 17;                                   // 0..255
+  g_wash_rgb = wrgb;
+  g_tr = r; g_tg = g; g_tb = b;
+  build_palettes();
   gc_mark_all_dirty();
 }
 
@@ -99,7 +145,7 @@ extern "C" void gc_set_depth(int percent) {
   if (percent > 100) percent = 100;
   if (percent == g_depth) return;
   g_depth = percent;
-  set_tint(g_tr, g_tg, g_tb);
+  build_palettes();
   gc_mark_all_dirty();
 }
 
@@ -342,8 +388,11 @@ extern "C" void gc_init(int scene, uint32_t seed, int swap_bytes) {
   g_scene = scene;
   g_swap = swap_bytes;
   g_rng = seed ? seed : 0x1234567u;
+  g_season = 0; g_wash_k = 0; g_wash_rgb = 0;
   set_tint(256, 256, 256);
   g_look_key = -1;
+  g_look_wash = 0;
+  if (scene == GC_SCENE_VILLAGE) G.card_period = 10;   // default: one info card every 10 minutes
   g_status_cur = 0;
   g_status_acc = 0;
   if (scene == GC_SCENE_VILLAGE) village_init(seed);
@@ -386,6 +435,7 @@ extern "C" void gc_set_fps(int fps_x10) {
     g_fps_x10 = fps_x10;
     if (g_scene == GC_SCENE_TEST && g_status_cur == 4) g_dirty |= 1u << (GC_ROWS - 1);
   }
+  weather_set_fps(fps_x10);   // governor input (design 6.1)
 }
 
 extern "C" uint32_t gc_dirty_mask(void) { return g_dirty; }
