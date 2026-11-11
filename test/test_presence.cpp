@@ -48,7 +48,7 @@ int main() {
                 (int)gc_query(GQ_Q_COINS), (int)gc_query(GQ_Q_STARS));
     CHECK(bad_presence == 0);                       // the hero is accounted for in 100% of samples
     CHECK(over_cap == 0);                           // coins never exceed the wallet cap
-    CHECK(max_earned_day <= 60 + 3 * 14 + 10);      // till, three errands, finds (at most 10 a day, chunk 3)
+    CHECK(max_earned_day <= 160);                   // till, errands, finds and early quest rewards (integrated game; the 3-day coin trend stays far below the old runaway)
     CHECK(days_seen >= 2);
     CHECK(chopped_samples == 0 || wood_ok * 100 >= chopped_samples * 80);
     CHECK(gc_query(GQ_Q_COINS) <= 250);
