@@ -15,6 +15,7 @@
 #include "world_priv.h"
 #include "text_data.h"
 #include "quest_data.h"
+#include "talk_data.h"   // enums only (QK_*): the tables belong to talk.cpp
 
 enum { NO_QUEST = 0xFF, SCENE_BELL = 1, MAX_AGE_DAYS = 4, BELL_X = 7, BELL_Y = 6 };
 
@@ -27,6 +28,7 @@ static uint32_t s_skip;              // quests given up for now (cleared every 7
 static uint16_t s_blocked_day = 0xFFFF;  // fainted today: fight and activity steps wait until tomorrow
 static uint8_t  s_pend_hero = 0xFF;  // text id of the hero's line for the step that just started
 static uint8_t  s_thanks_npc = 0xFF; // who says thanks for the quest that just ended
+static uint8_t  s_chat_kind = QK_THANKS, s_chat_npc;   // what the last quest line was about (quest_chat_kind)
 static char     s_tmp[48];           // scratch for the band text
 
 static void select_quest(void);
@@ -478,6 +480,27 @@ int quest_need(GqNeed* out) {
 }
 
 // ------------------------------------------------------------------------------ talking, band
+// Kind of quest line for talk.cpp's answer of the hero: the step type, or an offer for the first step of a quest.
+static int chat_kind_of(int t) {
+  switch (t) {
+    case QS_TALK: return G.s.q_step == 0 ? QK_OFFER : QK_REPORT;
+    case QS_FETCH: return QK_FETCH;
+    case QS_DELIVER: return QK_DELIVER;
+    case QS_GOTO: return QK_GOTO;
+    case QS_SLAY: return QK_SLAY;
+    case QS_DO: return QK_DO;
+    case QS_WAIT_DAY: return QK_WAIT;
+    default: return QK_SCENE;
+  }
+}
+
+static int say_step(int i, int npc, char* buf, int cap) {
+  gq_text(GC_RD8(&QSTEPS[i].txt_start), buf, cap);
+  s_chat_kind = (uint8_t)chat_kind_of(st_type(i));
+  s_chat_npc = (uint8_t)npc;
+  return buf[0] != 0;
+}
+
 int quest_talk(int npc, char* buf, int cap) {
   if (cap > 0) buf[0] = 0;
   if (npc < 0 || npc >= GQ_NPC_COUNT) return 0;
@@ -490,38 +513,33 @@ int quest_talk(int npc, char* buf, int cap) {
   int i = cur_index();
   if (i >= 0) {
     int t = st_type(i), q = G.s.q_active;
-    if ((t == QS_TALK || t == QS_DELIVER) && st_a(i) == npc) {
-      gq_text(GC_RD8(&QSTEPS[i].txt_start), buf, cap);
-      return buf[0] != 0;
-    }
-    if (qd_giver(q) == npc && t != QS_TALK && t != QS_DELIVER) {   // a reminder of the task
-      gq_text(GC_RD8(&QSTEPS[i].txt_start), buf, cap);
-      return buf[0] != 0;
-    }
+    if ((t == QS_TALK || t == QS_DELIVER) && st_a(i) == npc) return say_step(i, npc, buf, cap);
+    if (qd_giver(q) == npc && t != QS_TALK && t != QS_DELIVER) return say_step(i, npc, buf, cap);   // a reminder of the task
   }
   if (s_thanks_npc == npc) {
     s_thanks_npc = 0xFF;
     gq_text(TX_THANKS0 + (int)(gc_rnd() % TX_THANKS_N), buf, cap);
+    s_chat_kind = QK_THANKS; s_chat_npc = (uint8_t)npc;
     return buf[0] != 0;
   }
   return 0;
 }
 
-void quest_ambient_line(int npc, char* buf, int cap) {
-  if (cap > 0) buf[0] = 0;
-  if (npc < GQ_NPC_MIRA || npc > GQ_NPC_MISO) return;
-  uint32_t r = gc_rnd();
-  int k, w = cal_weather();
-  int tier = econ_friend(npc) / 25;
-  if (tier > 3) tier = 3;
-  if ((w == GQ_W_RAIN || w == GQ_W_STORM) && r % 3 == 0) k = 18 + (int)((r >> 8) & 1);
-  else if ((r >> 4) % 4 == 0) k = 10 + season() * 2 + (int)((r >> 8) & 1);
-  else if (tier > 0 && (r >> 12) % 3 == 0) k = 20 + (tier - 1) * 2 + (int)((r >> 8) & 1);
-  else k = (int)((r >> 16) % 10);
-  gq_text(TX_AMBIENT0 + (npc - 1) * TX_AMBIENT_PER_NPC + k, buf, cap);
+// For the dialogue engine (talk.cpp). 0: a quest of this villager is active, 1: a story quest is, 2: no quest is, 3: some other quest is.
+int quest_chat_state(int npc) {
+  int i = cur_index();
+  if (i < 0) return 2;
+  int q = G.s.q_active, t = st_type(i);
+  if (qd_giver(q) == npc || ((t == QS_TALK || t == QS_DELIVER) && st_a(i) == npc)) return 0;
+  return is_story(q) ? 1 : 3;
 }
 
-void quest_reply_line(char* buf, int cap) { gq_text(TX_REPLY0 + (int)(gc_rnd() % TX_REPLY_N), buf, cap); }
+void quest_dbg_set_chat(int kind, int npc) { s_chat_kind = (uint8_t)kind; s_chat_npc = (uint8_t)npc; }   // tests
+
+int quest_chat_kind(int* npc) {
+  if (npc) *npc = s_chat_npc;
+  return s_chat_kind;
+}
 
 int quest_band(char* buf, int cap, int* num, int* den) {
   if (cap > 0) buf[0] = 0;

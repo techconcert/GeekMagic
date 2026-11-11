@@ -1,0 +1,26 @@
+# MISO, the cat. Cat sounds and little actions for the N: side; the hero does the talking. 6 scripts, 12 lines, all 2 turns.
+# The shared pool is not used for Miso. Run:  python3 tools/gen_talk.py --check content/talk/miso.txt
+
+@ ANY
+N: MRRP?
+H: YES, I'M A HERO.|THANKS FOR ASKING.
+
+@ ANY
+H: WHO'S A GOOD CAT?|IS IT YOU, {N}?
+N: PURR... MROW.|(YES. OBVIOUSLY.)
+
+@ TIME MORNING
+N: MROW! (BREAKFAST?)
+H: NOT YET, {N}. I'M|HUNGRY TOO!
+
+@ WX RAIN
+N: HSSS! (WET PAWS)
+H: I'LL CARRY YOU|HOME. LIKE A KING.
+
+@ FRIEND 1
+N: (HEAD BUMP)
+H: YOU LIKE ME NOW!|WHAT A GOOD DAY.
+
+@ SEASON WINTER
+N: (CURLS UP, SHIVERS)
+H: SHARE MY SCARF.|WE'LL BE WARM.

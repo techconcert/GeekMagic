@@ -8,6 +8,9 @@
 #include "../lib/gamecore/src/assets_gen.h"
 #include "../lib/gamecore/src/text_data.h"
 #include "../lib/gamecore/src/quest_data.h"
+#include "../lib/gamecore/src/talk_data.h"   // enums only
+int quest_chat_state(int npc);   // quest.cpp, for talk.cpp
+int quest_chat_kind(int* npc);
 
 void quest_debug_start(int q);   // quest.cpp (for gc_debug START_QUEST, wired by the integration pass)
 
@@ -15,7 +18,7 @@ void quest_debug_start(int q);   // quest.cpp (for gc_debug START_QUEST, wired b
 static int g_fail = 0;
 #define EXPECT(cond, ...) do { if (!(cond)) { std::printf("FAIL %s:%d: %s  ", __FILE__, __LINE__, #cond); std::printf(__VA_ARGS__); std::printf("\n"); if (++g_fail > 20) std::exit(1); } } while (0)
 
-static const char* txt(int id, char* buf, int cap) { return gq_text(id, buf, cap); }
+[[maybe_unused]] static const char* txt(int id, char* buf, int cap) { return gq_text(id, buf, cap); }
 
 // A glyph that is drawn: inside the font range, and not the "unknown" glyph (which is a copy of '?')
 static int glyph_ok(char ch) {
@@ -154,7 +157,7 @@ static void check_state(void) {
 // ------------------------------------------------------------------------------ 1. text and tables
 static void test_text_rules(void) {
   EXPECT(sizeof(TEXT_BLOB) <= 12288, "blob %d", (int)sizeof(TEXT_BLOB));
-  EXPECT(TX_COUNT > 400, "TX_COUNT %d", TX_COUNT);
+  EXPECT(TX_COUNT > 190, "TX_COUNT %d", TX_COUNT);   // names, quest titles, steps, bands, thanks (ambient and reply lines moved to talk_data.h in R3)
   int prev = -1;
   for (int id = 0; id < TX_COUNT; id++) {
     int o = TEXT_OFF[id];
@@ -176,9 +179,9 @@ static void test_text_rules(void) {
   gq_text(-1, b, 8); EXPECT(b[0] == 0, "negative id");
   gq_text(TX_COUNT, b, 8); EXPECT(b[0] == 0, "id past the end");
   gq_text(100000, b, 8); EXPECT(b[0] == 0, "huge id");
-  gq_text(TX_AMBIENT0, b, 1); EXPECT(b[0] == 0, "cap 1");
-  gq_text(TX_AMBIENT0, b, 0);   // must not write
-  gq_text(TX_AMBIENT0 + 3, b, 6); EXPECT(b[5] == 0 || b[6 - 1] == 0, "cap 6 terminated");
+  gq_text(TX_THANKS0, b, 1); EXPECT(b[0] == 0, "cap 1");
+  gq_text(TX_THANKS0, b, 0);   // must not write
+  gq_text(TX_THANKS0 + 3, b, 6); EXPECT(b[5] == 0 || b[6 - 1] == 0, "cap 6 terminated");
   for (int n = 0; n < GQ_NPC_COUNT; n++) EXPECT(gq_npc_name(n)[0] != 0, "name %d", n);
   EXPECT(gq_npc_name(-1)[0] == 0 && gq_npc_name(99)[0] == 0, "bad npc name");
   std::printf("text: %d strings, blob %d of 12288 bytes\n", TX_COUNT, (int)sizeof(TEXT_BLOB));
@@ -400,8 +403,8 @@ static void test_storm(void) {
         case 6: econ_take_item((int)((k >> 8) % 24), (int)((k >> 16) % 5)); break;
         case 7: quest_debug_start((int)((k >> 8) % 40) - 4); break;
         case 8: { GqNeed n; quest_need(&n); check_need_invariants(n); break; }
-        case 9: quest_talk((int)((k >> 8) % 14) - 2, buf, 48); quest_ambient_line((int)((k >> 8) % 14) - 2, buf, 48); break;
-        case 10: { int nu, de; quest_band(buf, 48, &nu, &de); quest_title(buf, 48); quest_reply_line(buf, 48); break; }
+        case 9: quest_talk((int)((k >> 8) % 14) - 2, buf, 48); talk_begin((int)((k >> 8) % 14) - 2); talk_turn((int)((k >> 12) % 6) - 1, buf, 48); break;
+        case 10: { int nu, de; quest_band(buf, 48, &nu, &de); quest_title(buf, 48); talk_quest_reply(buf, 48); break; }
         default:
           // corrupt the quest fields on purpose: every use must validate
           G.s.q_active = (uint8_t)(k >> 8); G.s.q_step = (uint8_t)(k >> 16); G.s.q_count = (uint8_t)(k >> 24);
@@ -444,35 +447,23 @@ static void test_save_mid_quest(void) {
 static void test_text_api(void) {
   gc_init(GC_SCENE_VILLAGE, 9, 0);
   char buf[48];
-  int seen_general = 0, seen_season = 0, seen_rain = 0, seen_tier = 0;
-  for (int npc = GQ_NPC_MIRA; npc <= GQ_NPC_MISO; npc++) {
-    G.s.friend_[npc] = 80;
-    for (int w = 0; w < 2; w++) {
-      G.s.weather = (uint8_t)(w ? GQ_W_RAIN : GQ_W_CLEAR);
-      for (int k = 0; k < 400; k++) {
-        quest_ambient_line(npc, buf, 48);
-        EXPECT(buf[0] != 0, "empty ambient line for %d", npc);
-        int found = -1;
-        for (int j = 0; j < TX_AMBIENT_PER_NPC; j++) {
-          char t[48];
-          if (std::strcmp(txt(TX_AMBIENT0 + (npc - 1) * TX_AMBIENT_PER_NPC + j, t, 48), buf) == 0) { found = j; break; }
-        }
-        EXPECT(found >= 0, "ambient line of npc %d not in its block: %s", npc, buf);
-        if (found < 10) seen_general++; else if (found < 18) seen_season++; else if (found < 20) seen_rain++; else seen_tier++;
-      }
-    }
-  }
-  EXPECT(seen_general && seen_season && seen_rain && seen_tier, "ambient variety %d %d %d %d", seen_general, seen_season, seen_rain, seen_tier);
-  quest_ambient_line(0, buf, 48); EXPECT(buf[0] == 0, "hero has no ambient line");
-  quest_ambient_line(77, buf, 48); EXPECT(buf[0] == 0, "bad npc");
-  for (int k = 0; k < 50; k++) { quest_reply_line(buf, 48); EXPECT(buf[0], "reply"); }
-  // low friendship never plays tier lines
-  gc_init(GC_SCENE_VILLAGE, 10, 0);
-  G.s.friend_[GQ_NPC_PIP] = 10;
-  for (int k = 0; k < 500; k++) {
-    quest_ambient_line(GQ_NPC_PIP, buf, 48);
-    for (int j = 20; j < 26; j++) { char t[48]; EXPECT(std::strcmp(txt(TX_AMBIENT0 + 2 * TX_AMBIENT_PER_NPC + j, t, 48), buf) != 0, "tier line at friendship 10"); }
-  }
+  // the ordinary chat lines moved to the dialogue scripts (talk.cpp, test_talk.cpp); here: the quest side of a chat
+  quest_talk(77, buf, 48); EXPECT(buf[0] == 0, "bad npc");
+  int npc = -1, kind = quest_chat_kind(&npc);
+  EXPECT(kind >= 0 && kind < QK_COUNT, "chat kind range %d", kind);
+  EXPECT(quest_chat_state(GQ_NPC_PIP) == 2, "no quest: state 2");
+  for (int k = 0; k < 50; k++) { talk_quest_reply(buf, 48); EXPECT(buf[0] == 0 || std::strlen(buf) < 40, "reply fits"); }
+  all_unlocked();
+  // an active story quest: the giver's own state is 0, the others see a story quest (1)
+  quest_debug_start(1);
+  EXPECT(G.s.q_active == 1, "story quest 1 started");
+  EXPECT(quest_chat_state(GQ_NPC_LUMA) == 0, "giver sees his quest");
+  EXPECT(quest_chat_state(GQ_NPC_PIP) == 1, "others see a story quest");
+  EXPECT(quest_talk(GQ_NPC_LUMA, buf, 48) && buf[0], "luma speaks of the quest");
+  kind = quest_chat_kind(&npc);
+  EXPECT(npc == GQ_NPC_LUMA && kind == QK_OFFER, "first step is an offer, got %d", kind);
+  // the hero's answer is quest aware and never empty once the data exists
+  talk_quest_reply(buf, 48); EXPECT(buf[0] != 0, "quest answer");
   // band: counts and progress; title
   gc_init(GC_SCENE_VILLAGE, 11, 0);
   all_unlocked();
