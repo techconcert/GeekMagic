@@ -133,7 +133,7 @@ void gfx_set_look(const GqLook* look) {
   g_look_key = key;
   g_look_wash = wrgb;
   g_season = season;
-  g_wash_k = wk * 17;                                   // 0..255
+  g_wash_k = wk == 15 ? 256 : wk * 17;                  // 0..256 (256 = the wash colour exactly)
   g_wash_rgb = wrgb;
   g_tr = r; g_tg = g; g_tb = b;
   build_palettes();

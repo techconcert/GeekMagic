@@ -51,6 +51,8 @@ static uint8_t  s_card_next;            // rotation position 0..3
 static uint32_t s_card_sig;
 static uint32_t s_card_acc2;
 static uint8_t  s_card_dirty;
+static uint8_t  s_card_dbg;             // 1 = opened from the debug panel: stays up whatever the hero does
+static int8_t   s_hour_seen;            // last hour announced by HOUR events
 
 enum { UI_I_EXCL = 35, UI_I_SCROLL = 36 };   // items.png cells (design 10.5)
 static const int CARD_X = 8, CARD_Y = 32, CARD_W = 224, CARD_H = 176;
@@ -269,6 +271,7 @@ static void card_close(void) {
 static void card_open(int id, int32_t hold_ms) {
   if (id < 1 || id > 4) return;
   s_card = (uint8_t)id;
+  s_card_dbg = 0;
   s_card_ms = hold_ms;
   s_card_acc = 0;
   s_card_pend = 0;
@@ -279,7 +282,7 @@ static void card_open(int id, int32_t hold_ms) {
 }
 
 void ui_debug_show_card(int id) {
-  if (id >= 1 && id <= 4) card_open(id, 30000);
+  if (id >= 1 && id <= 4) { card_open(id, 30000); s_card_dbg = 1; }
   else card_close();
 }
 
@@ -322,6 +325,7 @@ static void card_tick(uint32_t dt) {
   if (s_card) {
     s_card_ms -= (int32_t)dt;
     if (s_card_ms <= 0) { card_close(); return; }
+    if (!s_card_dbg && (hero_away_progress(0) >= 0 || hero_activity() == GQ_ACT_FIGHT)) { card_close(); return; }
     s_card_acc2 += dt;
     if (s_card_acc2 >= 500) {
       s_card_acc2 = 0;
@@ -355,7 +359,10 @@ void ui_on_event(int ev, int a, int b) {
     case GQ_EV_ACHIEVEMENT:     banner(UI_I_SCROLL, "NEW ACHIEVEMENT!", 6000); break;
     case GQ_EV_NEW_COLLECTIBLE: banner(UI_I_EXCL, "NEW COLLECTIBLE!", 4000); break;
     case GQ_EV_STAR:            banner(I_STAR, "NEW STAR!", 4000); break;
-    case GQ_EV_HOUR:            card_request(1, 15000); break;   // clock card at every full hour
+    case GQ_EV_HOUR:                                             // clock card at every natural full hour
+      if (a == (s_hour_seen + 1) % 24) card_request(1, 15000);
+      s_hour_seen = (int8_t)(a & 31);
+      break;
     default: break;
   }
 }
@@ -381,8 +388,9 @@ void ui_init(void) {
   s_b_text[0] = 0;
   s_ban_ms = 0;
   s_ck = 0; s_cdir = 0; s_cacc = 0;
-  s_card = 0; s_card_ms = 0; s_card_acc = 0; s_card_pend = 0; s_card_next = 0;
+  s_card = 0; s_card_dbg = 0; s_card_ms = 0; s_card_acc = 0; s_card_pend = 0; s_card_next = 0;
   s_card_dirty = 0; s_card_acc2 = 0;
+  s_hour_seen = (int8_t)(cal_minute() / 60);
   band_update();
 }
 
@@ -726,10 +734,10 @@ static void card_village(uint16_t* out, int y0) {
   for (int i = 1; i < GQ_NPC_COUNT; i++) {
     int cx = 14 + ((i - 1) % 3) * 72, cy = 140 + ((i - 1) / 3) * 22;
     if (cy + 16 <= y0 || cy >= y0 + GC_STRIP_H) continue;
-    ct(out, y0, cx, cy, gq_npc_name(i), g_ui[P_GREY], 1);
+    ct(out, y0, cx, cy, gq_npc_name(i), g_ui[P_WHITE], 1);
     int hearts = G.s.friend_[i] / 25;
     for (int h = 0; h < 4; h++)
-      chud_heart(out, y0, cx + h * 9, cy + 9, h < hearts ? g_ui[12] : g_ui[P_OUTLINE]);
+      chud_heart(out, y0, cx + h * 9, cy + 9, h < hearts ? g_ui[12] : g_ui[P_GREY]);
   }
 }
 

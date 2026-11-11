@@ -24,5 +24,9 @@ __attribute__((export_name("save_export"))) int w_save_export(void) { return gc_
 __attribute__((export_name("save_import"))) int w_save_import(int len) { return gc_save_import(save_buf, len); }
 __attribute__((export_name("query"))) int w_query(int key) { return (int)gc_query(key); }
 __attribute__((export_name("debug"))) void w_debug(int cmd, int arg) { gc_debug(cmd, arg); }
+__attribute__((export_name("set_date"))) void w_date(int y, int m, int d, int wd) { gc_set_date(y, m, d, wd, 0); }
+__attribute__((export_name("set_net"))) void w_net(int state) { gc_set_net(state); }
+__attribute__((export_name("set_option"))) void w_option(int key, int value) { gc_set_option(key, value); }
+__attribute__((export_name("clock_quality"))) void w_quality(int approx) { gc_set_clock_quality(approx); }
 __attribute__((export_name("render"))) void w_render(int s) { gc_render_strip(s, strip_buf); }
 }
