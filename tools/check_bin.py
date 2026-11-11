@@ -8,11 +8,11 @@ WiFi (to a newer build OR back to the stock firmware):
   2. Small enough that the ESP8266 updater can hold the running firmware and
      the next one in the 1 MB code area, in every direction we care about.
   3. Our own update page, rescue hotspot, safe mode and WiFi routes, the recovery revision tag and the
-     read-only save-sector probe line are linked in, and the update marker occurs exactly once.
+     read-only sector probe lines are linked in, and the update marker occurs exactly once.
   4. Built with the stock flash layout (_FS_start, _FS_end, _EEPROM_start), when the ELF is known.
   5. No symbol that could touch stock's files or settings (EEPROM, LittleFS, SPIFFS, HTTP updater ...).
   6. RAM (.data + .bss) within the baseline plus 8 KB (once RAM_BASELINE is filled in).
-  7. No flash journal (GQJ1): R2 has no game saving and never writes flash. In the quest build the display-test
+  7. No flash journal (GQJ1) and no flash settings store (GQF1): R2 has no game saving and never writes flash. In the quest build the display-test
      scene (GQ_TEST_SCENE, env:test only) must not be linked in.
   8. File name starts with "SDP" (the stock updater rejects anything else).
 
@@ -31,7 +31,7 @@ SECTOR = 4096
 CODE_AREA = 0x100000          # 4M3M layout: 1 MB for code
 STOCK_SIZE = 488304           # SDPro_V1.0.6 stock image
 BUDGET = 500 * 1024           # our own hard limit
-WARN_SIZE = 485 * 1024
+WARN_SIZE = 440 * 1024         # R3: warning from 440 KB (the R3 plan keeps the image under 470 KB, enforced in CI)
 FS_START_4M3M = 0x40300000
 FS_END_4M3M = 0x405FA000
 EEPROM_START_4M3M = 0x405FB000
@@ -57,13 +57,21 @@ REQUIRED_STRINGS = [
     (b"GEEKQUEST-%02X%02X", "rescue hotspot"),
     (b"GQ-RECOVERY-REV", "recovery revision tag"),
     (b"/safemode", "safe mode route"),
-    (b"Save sector 0x3FA000", "read-only save-sector probe"),
+    (b"Stock data sector 0x3FA000", "read-only probe of the stock data sector"),
+    (b"Spare sector 0xFF000", "read-only probe of the spare sector below the file system"),
     (b"/wifi", "WiFi setup route"),
 ]
+CONFIG_PAGE_STRING = (b"/config", "R3 settings page route")
 
+# R3 adds: no TLS (BearSSL costs 60 to 90 KB of flash and heap the clock does not have), no second HTTP client stack, and no
+# sleep modes that would switch the radio off (deep sleep, forced and timed light sleep; the update page must stay reachable).
 FORBIDDEN_SYMBOLS = re.compile(
     r"EEPROMClass|LittleFS|SPIFFS|spiffs_|ESP8266HTTPUpdate|ArduinoOTA|HTTPClient|(?<![a-z])lfs_"
+    r"|(?<![a-z])br_ssl_|WiFiClientSecure|AsyncClient|(?<![a-z])system_deep_sleep|(?<![a-z])wifi_fpm_do_sleep|forceSleepBegin|EspClass\w*deepSleep"
 )
+# R3 REQUIRED string for the settings page. Chunk P1 switches this to True in the commit that adds /config (together with
+# GQ_HAVE_CONFIG_PAGE in firmware/config.h); until then the stub build has no such page.
+REQUIRE_CONFIG_PAGE = False
 # Code of the display-test scene (lib/gamecore/src/gamecore.cpp, only compiled with -DGQ_TEST_SCENE=1 in env:test).
 # The quest build must not contain it. Static C++ names appear mangled (_ZL<len><name>..., _ZZL<len><name>... for
 # local statics); the compiler often inlines the functions, so their tables are what remains.
@@ -171,7 +179,7 @@ def check(path, fs_start=None, elf=None, require_elf=False):
     if 2 * roundup(size) > CODE_AREA:
         fail("this image could not install a same-sized update of itself")
 
-    for needle, what in REQUIRED_STRINGS:
+    for needle, what in REQUIRED_STRINGS + ([CONFIG_PAGE_STRING] if REQUIRE_CONFIG_PAGE else []):
         if needle not in data:
             fail(f"missing {what} ({needle!r})")
     n = count(data, MARKER)
@@ -181,6 +189,9 @@ def check(path, fs_start=None, elf=None, require_elf=False):
     # R2 has no game saving: the flash journal must be gone everywhere (it was the only flash writer)
     if b"GQJ1" in data:
         fail("GQJ1 (flash journal) found: R2 must not contain any flash saving code")
+    # R3 has no flash backend either (RTC memory only): the settings-sector header of the unapproved flash store must not appear
+    if b"GQF1" in data:
+        fail("GQF1 (flash settings store) found: R3 stores settings in RTC memory only")
 
     # ELF based rules
     addrs = dict(elf.addrs) if elf else {}

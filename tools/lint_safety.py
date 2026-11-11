@@ -1,4 +1,4 @@
-"""Recovery-contract lint (design 13.3 gate G4, rules L1..L7 of section 13.3 plus L8, L9; R2 adds the L2 flash rule).
+"""Recovery-contract lint (design 13.3 gate G4, rules L1..L7 of section 13.3 plus L8, L9; R2 adds the L2 flash rule; R3 adds L10..L13).
 
     python tools/lint_safety.py              # lint the repository
     python tools/lint_safety.py --root DIR   # lint another tree (used by the self-test)
@@ -124,6 +124,12 @@ class Lint:
             base = os.path.basename(rel)
             t = strip_code(read(self.root, rel))
             self.scan("L2", rel, t, flash_only, "flash write/erase or file-system access (R2 never writes flash): %s")
+            # R3: still no flash backend (addendum item 3): no cfgflash.*, no GQ_CONFIG_FLASH, and the Updater class only in safety.cpp
+            if base.startswith("cfgflash"):
+                self.add("L2", rel, 1, "no flash backend in R3: cfgflash.* must not exist")
+            self.scan("L2", rel, t, r"\bGQ_CONFIG_FLASH\b", "GQ_CONFIG_FLASH: R3 has no flash backend")
+            if base != "safety.cpp":
+                self.scan("L2", rel, t, r"\bUpdate\s*\.\s*(?:begin|write|end|writeStream)\b|\bUpdater\b", "Updater (firmware flash writer) outside safety.cpp: %s")
             if base != "prefs.cpp":
                 self.scan("L2", rel, t, r"\bflashRead\b", "flash access outside prefs.cpp: %s")
             if base != "safety.cpp":
@@ -201,6 +207,8 @@ class Lint:
         # edit of this rule as well.
         if re.search(r"GQ_FLASH_SAVE", t):
             self.add("L8", rel, 1, "GQ_FLASH_SAVE must not appear: R2 has no flash saving at all")
+        if re.search(r"GQ_CONFIG_FLASH", t):
+            self.add("L8", rel, 1, "GQ_CONFIG_FLASH must not appear: R3 has no flash backend (RTC memory only)")
         if not re.search(r"^\s*-DGQ_NET_NO_SLEEP=1\s*$", t, re.M):
             self.add("L8", rel, 1, "[env] build_flags must contain -DGQ_NET_NO_SLEEP=1 (A3, modem sleep off, approved 2026-11-11)")
         if not re.search(r"^\s*-DGQ_AUTO_RESTART=1\s*$", t, re.M):
@@ -221,8 +229,39 @@ class Lint:
                 t = strip_comments(read(self.root, rel))
                 self.scan("L9", rel, t, pat, "floating point formatting or parsing: %s")
 
+    # ---------------------------------------------------------------- L10, L11, L12, L13 (R3)
+    # L10  sleep modes: deep sleep, forced/timed/automatic light sleep and WiFi off make the update page unreachable
+    # L11  network client code (raw lwIP, extra clients) lives in firmware/wxnet.cpp only, and wxnet.cpp keeps its hands
+    #      off WiFi control and off anything that blocks
+    # L12  CPU frequency and display sleep only in nightmode.cpp; safety::web() (route registration) only in config.cpp
+    # L13  RTC user memory only in the four files that own blocks (safety, netwatch, prefs, config)
+    def l10_l13(self):
+        sleep_bad = (r"\b(?:deepSleep\w*|system_deep_sleep\w*|forceSleep\w*|wifi_fpm_\w*|WIFI_LIGHT_SLEEP|LIGHT_SLEEP\w*|WIFI_OFF)\b"
+                     r"|\bsetSleepMode\s*\(\s*WIFI_(?!NONE_SLEEP\b|MODEM_SLEEP\b)")
+        net_bad = r"\b(?:tcp_\w+|udp_\w+|altcp_\w+|pbuf_\w+|dns_gethostbyname\w*|raw_\w+)\s*\("
+        client_bad = r"\b(?:WiFiClient|WiFiUDP|AsyncClient|BearSSL\w*|WiFiServer)\b"
+        for rel in files(self.root, "firmware") + files(self.root, "lib/gqsafe"):
+            base = os.path.basename(rel)
+            t = strip_code(read(self.root, rel))
+            self.scan("L10", rel, t, sleep_bad, "forbidden sleep mode (deep sleep, forced/light sleep or WiFi off): %s")
+            if rel.startswith("firmware/"):
+                if base != "wxnet.cpp":
+                    self.scan("L11", rel, t, net_bad, "raw lwIP call outside wxnet.cpp: %s")
+                    self.scan("L11", rel, t, r"#\s*include\s*[<\"](?:lwip/|WiFiClient|ESP8266HTTPClient|WiFiClientSecure)", "network client include outside wxnet.cpp")
+                if base not in ("safety.cpp", "wxnet.cpp"):
+                    self.scan("L11", rel, t, client_bad, "network client/server class outside safety.cpp and wxnet.cpp: %s")
+                if base != "nightmode.cpp" and not base.startswith("st7789."):
+                    self.scan("L12", rel, t, r"\bsystem_update_cpu_freq\b|\bsetCpuFrequencyMhz\b|\blcd\s*::\s*(?:sleep|wake)\b", "CPU frequency or display sleep outside nightmode.cpp: %s")
+                if base not in ("config.cpp", "safety.cpp"):
+                    self.scan("L12", rel, t, r"\bsafety\s*::\s*web\s*\(", "safety::web() outside config.cpp")
+                if base not in ("safety.cpp", "netwatch.cpp", "prefs.cpp", "config.cpp"):
+                    self.scan("L13", rel, t, r"\brtcUserMemory(?:Read|Write)\b", "RTC user memory access outside safety.cpp, netwatch.cpp, prefs.cpp, config.cpp: %s")
+                if base == "wxnet.cpp":
+                    self.scan("L11", rel, t, r"\bWiFi\s*\.|\bWiFi\b\s*::|\bWiFi\w*\s+\w+\s*;", "wxnet.cpp must not call WiFi control (ask safety:: for the link state)")
+                    self.scan("L11", rel, t, r"\bdelay\s*\(|\bString\b|\bWiFiClient\b", "wxnet.cpp must not use delay(), String or WiFiClient")
+
     def run(self):
-        self.l1(); self.l2_l3(); self.l4(); self.l5_l7(); self.l6_l8(); self.l9()
+        self.l1(); self.l2_l3(); self.l4(); self.l5_l7(); self.l6_l8(); self.l9(); self.l10_l13()
         return self.hits
 
 
@@ -250,6 +289,12 @@ def selftest():
             ok = not hits
         else:
             ok = want in rules
+            # R3 fixtures carry an EXPECT file: a regular expression that one hit message of the wanted rule must match
+            # (and no other rule may fire), so a fixture cannot pass by accident through some unrelated violation.
+            ex = os.path.join(fx, d, "EXPECT")
+            if os.path.exists(ex):
+                pat = open(ex).read().strip()
+                ok = ok and any(h[0] == want and re.search(pat, h[3]) for h in hits) and rules == {want}
         print(("ok   " if ok else "FAIL ") + d + ("" if ok else f" (expected {want}, got {sorted(rules) or 'nothing'})"))
         bad += not ok
     if bad:

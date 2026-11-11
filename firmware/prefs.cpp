@@ -15,6 +15,16 @@ namespace prefs {
 static const uint32_t RTC_SET = 80;
 static const uint32_t SAVE_ADDR = 0x3FA000UL;   // the 4 KB gap between stock's file system and its EEPROM sector
 
+static const uint32_t SPARE_ADDR = 0xFF000UL;   // last sector of the 1 MB program area (read-only probe, R3-0F)
+
+static void hexHead(const uint8_t* head, char* hex) {
+  for (int i = 0; i < 16; i++) {
+    hex[i * 2] = "0123456789ABCDEF"[head[i] >> 4];
+    hex[i * 2 + 1] = "0123456789ABCDEF"[head[i] & 15];
+  }
+  hex[32] = 0;
+}
+
 static GqSettings s_set;
 static bool s_display = false, s_game = false;
 
@@ -60,7 +70,7 @@ void reset() {
 void probeText(char* buf, size_t n) {
   if (((uint32_t)(uintptr_t)&_FS_end - 0x40200000UL) / 4096 != 0x3FA || ((uint32_t)(uintptr_t)&_EEPROM_start - 0x40200000UL) / 4096 != 0x3FB ||
       ESP.getFlashChipRealSize() != 4UL * 1024 * 1024) {
-    snprintf_P(buf, n, PSTR("Save sector: the flash layout is not the expected one."));
+    snprintf_P(buf, n, PSTR("Stock data sector 0x3FA000: the flash layout is not the expected one."));
     return;
   }
   alignas(4) uint8_t b[64];
@@ -74,18 +84,41 @@ void probeText(char* buf, size_t n) {
       if (b[i] != 0xFF) blank = false;
   }
   if (!ok) {
-    snprintf_P(buf, n, PSTR("Save sector 0x3FA000: could not be read."));
+    snprintf_P(buf, n, PSTR("Stock data sector 0x3FA000: could not be read."));
   } else if (blank) {
-    snprintf_P(buf, n, PSTR("Save sector 0x3FA000: blank."));
+    snprintf_P(buf, n, PSTR("Stock data sector 0x3FA000: blank."));
   } else {
     char hex[33];
-    for (int i = 0; i < 16; i++) {
-      hex[i * 2] = "0123456789ABCDEF"[head[i] >> 4];
-      hex[i * 2 + 1] = "0123456789ABCDEF"[head[i] & 15];
-    }
-    hex[32] = 0;
-    snprintf_P(buf, n, PSTR("Save sector 0x3FA000: in use by something else (first 16 bytes %s)."), hex);
+    hexHead(head, hex);
+    snprintf_P(buf, n, PSTR("Stock data sector 0x3FA000: in use by something else (first 16 bytes %s)."), hex);
   }
+}
+
+// RECOVERY-CHANGE (R3-0F): second read-only probe, the last sector of the 1 MB program area (just below _FS_start).
+void spareText(char* buf, size_t n) {
+  alignas(4) uint8_t b[64];
+  uint8_t head[16];
+  memset(head, 0, sizeof(head));
+  bool blank = true, ok = true;
+  for (uint32_t off = 0; off < 4096 && ok; off += sizeof(b)) {   // read only
+    ok = ESP.flashRead(SPARE_ADDR + off, (uint32_t*)b, sizeof(b));
+    if (off == 0) memcpy(head, b, sizeof(head));
+    for (uint32_t i = 0; ok && i < sizeof(b); i++)
+      if (b[i] != 0xFF) blank = false;
+  }
+  uint32_t end = ESP.getSketchSize();
+  char state[72];
+  if (!ok) {
+    snprintf_P(state, sizeof(state), PSTR("could not be read"));
+  } else if (blank) {
+    snprintf_P(state, sizeof(state), PSTR("blank"));
+  } else {
+    char hex[33];
+    hexHead(head, hex);
+    snprintf_P(state, sizeof(state), PSTR("in use (first 16 bytes %s)"), hex);
+  }
+  snprintf_P(buf, n, PSTR("Spare sector 0xFF000: %s. Image ends at 0x%X, %s."), state, (unsigned)end,
+             end > SPARE_ADDR ? "so this sector is inside the running image" : "this sector is above it, where an update upload may be staged");
 }
 
 }  // namespace prefs

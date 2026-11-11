@@ -96,6 +96,30 @@ expect("marker twice", False, verdict(make(marker_copies=2)))
 expect("GQJ1 in any build", False, verdict(make(extra=b"GQJ1")))
 expect("GQJ1 and Save sector in any build", False, verdict(make(extra=b"GQJ1 Save sector")))
 
+# ---- R3: no flash settings store, TLS, second HTTP client or radio-off sleep modes; the settings page string
+expect("GQF1 (flash settings store) in any build", False, verdict(make(extra=b"GQF1")))
+for sym in ("br_ssl_client_init_full", "_ZN9BearSSL.. br_ssl_engine_run", "_ZN16WiFiClientSecure7connectEv", "_ZN11AsyncClientC1Ev", "system_deep_sleep",
+            "wifi_fpm_do_sleep", "_ZN24ESP8266WiFiGenericClass15forceSleepBeginEj", "_ZN8EspClass9deepSleepEmN8RFMode"):
+    expect(f"R3 forbidden symbol {sym}", False, verdict(make(), elf=elf(symbols=GOOD_ELF["symbols"] + [sym])))
+expect("harmless symbols near the R3 names", True,
+       verdict(make(), elf=elf(symbols=GOOD_ELF["symbols"] + ["br_sha256_update", "xbr_ssl_x", "system_update_cpu_freq", "wifi_set_sleep_type"])))
+old_req = check_bin.REQUIRE_CONFIG_PAGE
+try:
+    check_bin.REQUIRE_CONFIG_PAGE = False
+    expect("/config not required while REQUIRE_CONFIG_PAGE is False", True, verdict(make()))
+    check_bin.REQUIRE_CONFIG_PAGE = True
+    expect("/config required once the settings page exists: missing", False, verdict(make()))
+    expect("/config required once the settings page exists: present", True, verdict(make(extra=b"/config")))
+finally:
+    check_bin.REQUIRE_CONFIG_PAGE = old_req
+ok, text = verdict(make(size=445 * KB))
+expect("445 KB passes", True, (ok, text))
+if "WARNING" not in text:
+    failures.append("445 KB should print a size warning (R3 warns from 440 KB)")
+ok, text = verdict(make(size=430 * KB))
+if "WARNING" in text:
+    failures.append("430 KB should not print a size warning")
+
 # ---- display-test scene must not be in the quest build
 expect("test scene symbol in the quest build", False,
        verdict(make(), name="SDP_GeekQuest_quest_x.bin", elf=elf(symbols=GOOD_ELF["symbols"] + ["_ZZL11test_renderiPtE5cycle"])))

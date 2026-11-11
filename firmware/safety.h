@@ -8,6 +8,8 @@
 #define GQ_MDNS 0   // 1 = answer geekquest.local (about 19 KB of code); the clock shows its IP address either way
 #endif
 
+class ESP8266WebServer;
+
 namespace safety {
 
 // Call FIRST in setup(), before touching the display or the game.
@@ -85,5 +87,18 @@ void setHealth(uint16_t fps_x10, uint32_t loopMaxMs);
 void setAsleepFn(bool (*fn)());
 // Short text of the last restart reasons for the status page and /info.
 const char* restartName(uint8_t reason);
+
+// ---- RECOVERY-CHANGE (R3-0F): plumbing for the R3 modules (docs/DESIGN-R3.md section 6)
+// The one web server. Only config.cpp (lint L12) registers routes on it, and not in safe mode.
+ESP8266WebServer& web();
+// Why the clock started. BK_POWER: power-on or reset button. BK_CRASH: the previous run ended without a planned restart.
+// BK_AUTO: the previous restart was automatic (WiFi, heap, weekly). BK_USER: restart button, update or safe mode request.
+enum BootKind : uint8_t { BK_POWER, BK_CRASH, BK_AUTO, BK_USER };
+BootKind bootKind();
+// Weather fetch bookkeeping kept in two spare RTC words: wxMark(true) before a fetch, wxMark(false) after it. A boot that
+// follows an unplanned reset while it was set adds a strike (cleared by power-on or wxClearStrikes()).
+void wxMark(bool busy);
+uint8_t wxStrikes();
+void wxClearStrikes();
 
 }  // namespace safety

@@ -10,6 +10,10 @@
 // RECOVERY-CHANGE (R2): settings in RTC memory (no game saving) and the game's query keys (public, design 10.3)
 #include "prefs.h"
 #include "gq_types.h"
+// RECOVERY-CHANGE (R3-0F): the three R3 modules (stubs that do nothing until their chunks land)
+#include "config.h"
+#include "wxnet.h"
+#include "nightmode.h"
 
 #ifndef GQ_SCENE
 #define GQ_SCENE GC_SCENE_TEST
@@ -65,6 +69,8 @@ void setup() {
   safety::stage(1);
   prefs::begin();                        // RECOVERY-CHANGE (R2): settings from RTC memory, else defaults; the game is never saved
   safety::setAsleepFn(heroAsleep);
+  config::begin(safety::safeMode());     // RECOVERY-CHANGE (R3-0F): settings record and page; no routes in safe mode
+  wxnet::begin(safety::safeMode());      // weather client; never runs in safe mode
 
   if (!safety::noDisplay()) {            // 2. display (skipped after 6 crashes)
     safety::stage(2);
@@ -74,6 +80,7 @@ void setup() {
   }
   if (safety::safeMode()) gc_init(GC_SCENE_INFO, 1, 1);   // 3. game, unless in safe mode
   else gc_init(GQ_SCENE, ESP.random(), 1);
+  nightmode::begin(safety::safeMode(), s_display);   // RECOVERY-CHANGE (R3-0F): sleep schedule; never in safe mode
   prefs::apply(s_display, !safety::safeMode());   // brightness, card period, night dimming
   gc_set_depth(safety::depth());
   safety::stage(4);
@@ -94,7 +101,13 @@ void loop() {
     }
     prevEntry = e;
   }
+  config::loop();                        // RECOVERY-CHANGE (R3-0F): R3 modules, each does its work at most once a second
+  wxnet::loop();                         // (the live reading reaches the core through updateStatus() in chunk W2)
+  nightmode::loop();
   if (!s_display || safety::updating()) { delay(2); return; }
+  // RECOVERY-CHANGE (R3-0F): while the screen is off the game ticks 4 times a second and nothing is rendered
+  const bool screenOff = nightmode::screenOff();
+  if (screenOff && millis() - s_lastTick < 250) { delay(50); return; }
 
   gc_set_depth(safety::depth());
   uint32_t now = millis();
@@ -106,6 +119,7 @@ void loop() {
 
   uint32_t mask = gc_dirty_mask();
   gc_clear_dirty();
+  if (screenOff) { delay(50); return; }
   static bool firstFrame = true;
   for (int s = 0; s < GC_ROWS; s++) {
     if (!(mask & (1u << s))) continue;

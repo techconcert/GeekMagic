@@ -25,6 +25,13 @@ jobs:
           python3 tools/lint_safety.py --selftest
       - name: check_bin self-test (G5)
         run: python3 tools/check_bin_selftest.py
+      # RECOVERY-CHANGE (R3-0F): the R3 module headers are the interface between parallel chunks; they must stay free of Arduino and compile alone
+      - name: R3 module headers compile on the host
+        run: |
+          for h in firmware/config.h firmware/wxnet.h firmware/nightmode.h lib/gqsafe/src/gqconf.h; do
+            echo "=== $h"
+            echo "#include \"$h\"" | g++ -std=c++17 -fsyntax-only -Wall -Wextra -Werror -I. -Ifirmware -Ilib/gqsafe/src -x c++ -
+          done
       - name: Python tests (every test/*.py)
         run: |
           shopt -s nullglob
@@ -92,6 +99,13 @@ jobs:
       # RECOVERY-CHANGE (chunk1): gate G7 with the ELF (symbols, linker layout, RAM); the toolchain comes with PlatformIO
       - name: Recovery safety check (again, explicitly)
         run: python tools/check_bin.py --require-elf dist/*.bin
+      # RECOVERY-CHANGE (R3-0F): the R3 plan keeps every image under 470 KB (addendum item 5); check_bin warns from 440 KB and fails at 500 KB
+      - name: R3 size cap (images under 470 KB)
+        run: |
+          for f in dist/*.bin; do
+            n=$(stat -c %s "$f"); echo "$f $n bytes"
+            [ "$n" -lt $((470 * 1024)) ] || { echo "image is over the R3 cap of 470 KB"; exit 1; }
+          done
       - name: Link flags (was -u _printf_float removed?) and the biggest symbols
         run: |
           for e in dist/*.elf; do

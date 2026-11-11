@@ -24,6 +24,11 @@
 #include "gq_crc32.h"
 #include "settings.h"
 #include "prefs.h"
+// RECOVERY-CHANGE (R3-0F): page writer, and the status lines of the three R3 modules (stubs until their chunks land)
+#include "webout.h"
+#include "config.h"
+#include "wxnet.h"
+#include "nightmode.h"
 
 #include <coredecls.h>   // settimeofday_cb
 
@@ -47,7 +52,8 @@ static const uint32_t AP_GRACE_MS = 10UL * 60 * 1000;  // AP stays up 10 min aft
 // RECOVERY-CHANGE (0B): STA_LOST_AP_MS removed; the 60 s rule now lives in netfsm.cpp
 // RECOVERY-CHANGE (chunk1): CRASHES_FOR_* moved to lib/gqsafe/src/bootlogic.h
 // RECOVERY-CHANGE (chunk1): revision 2 = chunk 1 (design 8.10 rule 6); 3 = R2 (no game saving, automatic restarts on)
-static const uint32_t GQ_RECOVERY_REV = 4;
+// RECOVERY-CHANGE (R3-0F): revision 5 = R3 plumbing (web() accessor, webout.h, weather strike words, boot kind, spare sector probe)
+static const uint32_t GQ_RECOVERY_REV = 5;
 // RECOVERY-CHANGE (chunk1): timers of the restart gates
 static const uint32_t SLOW_STABLE_MS = 6UL * 3600 * 1000;   // `slow` counter cleared after 6 h of uptime
 static const uint32_t AUTO_MIN_UPTIME_MS = 30UL * 60 * 1000;
@@ -78,7 +84,9 @@ struct RtcState2 {
   uint32_t everConnected;   // since power-on
   uint32_t lastReason;      // four RestartReason bytes, newest in the low byte
   uint32_t bootCount;
-  uint32_t spare0, spare1, spare2;
+  uint32_t wxBusy;          // R3: 1 while a weather fetch is running (wxMark); a boot after an unplanned reset with it set adds a strike
+  uint32_t wxStrikes;       // R3: weather fetches that ended in an unplanned reset; cleared by power-on or wxClearStrikes()
+  uint32_t spare2;
   uint32_t crc;             // CRC32 of the ten words above
 };
 static_assert(sizeof(RtcState2) == 44, "RtcState2 must fit blocks 101..111");
@@ -106,6 +114,7 @@ static char s_tz[GQS_TZ_MAX + 1] = "<-03>3";
 // RECOVERY-CHANGE (chunk1): restart machinery, health numbers, upload checks
 static RtcState2 s_r2;
 static bool s_cold = false;
+static uint8_t s_bootKind = 0;           // RECOVERY-CHANGE (R3-0F): BootKind
 static bool s_slowCleared = false;
 static uint8_t s_pending = RR_NONE;
 static bool (*s_asleepFn)() = nullptr;
@@ -139,6 +148,8 @@ static void r2PushReason(uint8_t why) {
   s_r2.lastReason = (s_r2.lastReason << 8) | why;
 }
 
+static bool isAuto(uint8_t why);
+
 static void bootGuard() {
   RtcState s;
   rtcRead(s);
@@ -154,6 +165,13 @@ static void bootGuard() {
   if (!valid2 || coldBoot) memset(&r2, 0, sizeof(r2));
 
   s_lastStage = valid1 ? s.stage : 0;
+
+  // RECOVERY-CHANGE (R3-0F): weather strikes. The busy word is set around a fetch; if the previous run ended without
+  // a planned restart while it was set, the fetch is the suspect. The busy word never survives a boot.
+  bool prevPlanned = valid1 && s.planned == 1;
+  uint8_t prevWhy = (uint8_t)(r2.lastReason & 0xFF);   // zero after a power-on (r2 was cleared above)
+  if (!coldBoot && r2.wxBusy && !prevPlanned && r2.wxStrikes < 100) r2.wxStrikes++;
+  r2.wxBusy = 0;
 
   // RECOVERY-CHANGE (chunk1): the counting rules live in bootlogic.cpp (host-tested)
   bool wasPlanned = valid1 && s.planned == 1;
@@ -183,6 +201,7 @@ static void bootGuard() {
   }
   r2Write();
   s_cold = coldBoot;
+  s_bootKind = coldBoot ? BK_POWER : (!wasPlanned ? BK_CRASH : (isAuto(prevWhy) ? BK_AUTO : BK_USER));
 
   s_crashes = c.crashes;
   s_safe = d.safe != 0;
@@ -219,7 +238,8 @@ const char* restartName(uint8_t reason) {
   return reason < sizeof(N) / sizeof(N[0]) ? N[reason] : "?";
 }
 
-static bool isAuto(uint8_t why) { return why == RR_WIFI || why == RR_HEAP || why == RR_MAINT; }
+static bool isAuto(uint8_t why) {
+  return why == RR_WIFI || why == RR_HEAP || why == RR_MAINT; }
 
 static void doRestart(uint8_t why) {
   RtcState s;
@@ -268,6 +288,18 @@ void plannedRestart(bool intoSafeMode) {
 }
 
 bool coldBoot() { return s_cold; }
+
+// RECOVERY-CHANGE (R3-0F): R3 accessors
+ESP8266WebServer& web() { return server; }
+BootKind bootKind() { return (BootKind)s_bootKind; }
+void wxMark(bool busy) {
+  uint32_t v = busy ? 1 : 0;
+  if (s_r2.wxBusy == v) return;
+  s_r2.wxBusy = v;
+  r2Write();
+}
+uint8_t wxStrikes() { return s_r2.wxStrikes > 255 ? 255 : (uint8_t)s_r2.wxStrikes; }
+void wxClearStrikes() { if (s_r2.wxStrikes) { s_r2.wxStrikes = 0; r2Write(); } }
 
 uint8_t wifiRestarts() { return s_r2.wifiRestarts > 255 ? 255 : (uint8_t)s_r2.wifiRestarts; }
 void noteLinkGood() { if (s_r2.wifiRestarts) { s_r2.wifiRestarts = 0; r2Write(); } }
@@ -364,57 +396,21 @@ static const char PAGE_LOWMEM[] PROGMEM = "<!doctype html><meta name=viewport co
     ". The full status page is skipped to save memory.</p><p><a href='/update'>Update firmware</a></p>"
     "<form method='post' action='/reboot'><button>Restart</button></form></body>";
 
-// Small buffered writer for chunked pages.
-struct Out {
-  char b[480];
-  uint16_t n;
-  Out() : n(0) {}
-  void flush() { if (n) { server.sendContent_P(b, n); n = 0; } }
-  void put(const char* t, size_t l) {
-    if (l > sizeof(b) - n) { flush(); if (l > sizeof(b)) { server.sendContent_P(t, l); return; } }
-    memcpy(b + n, t, l);
-    n += (uint16_t)l;
-  }
-  void s(const char* t) { put(t, strlen(t)); }                               // RAM string, raw
-  void p(PGM_P t) { size_t l = strlen_P(t); if (l > sizeof(b) - n) { flush(); server.sendContent_P(t, l); } else { memcpy_P(b + n, t, l); n += (uint16_t)l; } }
-  void esc(const char* t) {                                                  // RAM string, HTML escaped
-    for (; *t; t++) {
-      const char* r = nullptr;
-      if (*t == '<') r = "&lt;"; else if (*t == '>') r = "&gt;"; else if (*t == '&') r = "&amp;"; else if (*t == '\'') r = "&#39;"; else if (*t == '"') r = "&quot;";
-      if (r) put(r, strlen(r)); else put(t, 1);
-    }
-  }
-  // printf with a flash format, straight into the buffer (no second 140-byte stack buffer: the old one cut every longer
-  // piece of the status page short, including the settings form). One call may produce up to sizeof(b) - 1 characters.
-  void f(PGM_P fmt, ...) {
-    va_list ap, ap2;
-    va_start(ap, fmt);
-    va_copy(ap2, ap);
-    size_t room = sizeof(b) - n;
-    int l = vsnprintf_P(b + n, room, fmt, ap);
-    if (l >= 0 && (size_t)l >= room) {            // does not fit behind what is buffered: send that first, format again
-      flush();
-      l = vsnprintf_P(b, sizeof(b), fmt, ap2);
-    }
-    va_end(ap2);
-    va_end(ap);
-    if (l > 0) n = (uint16_t)(n + (size_t)l < sizeof(b) ? n + (size_t)l : sizeof(b) - 1);
-  }
-};
+using webout::Out;   // RECOVERY-CHANGE (R3-0F): the writer lives in webout.h
 
-static void touch() {
+void touch() {
   netwatch::noteHttp();
   uint32_t n = millis();
   s_lastReq = n ? n : 1;
 }
 
-static void beginChunked(int code, const __FlashStringHelper* type) {
+void beginChunked(int code, const __FlashStringHelper* type) {
   server.setContentLength(CONTENT_LENGTH_UNKNOWN);
   server.send(code, type, "");
 }
-static void endChunked() { server.sendContent(""); }
-static void beginPage() { beginChunked(200, F("text/html; charset=utf-8")); server.sendContent_P(PAGE_HEAD); }
-static void endPage() { server.sendContent_P(PAGE_TAIL); endChunked(); }
+void endChunked() { server.sendContent(""); }
+void beginPage() { beginChunked(200, F("text/html; charset=utf-8")); server.sendContent_P(PAGE_HEAD); }
+void endPage() { server.sendContent_P(PAGE_TAIL); endChunked(); }
 static void redirectHome() {
   server.sendHeader(F("Location"), F("/"));
   server.send(303);
@@ -450,11 +446,25 @@ static void sendReasons(Out& o, bool json) {
   }
 }
 
+// RECOVERY-CHANGE (R3-0F): the k-th non-empty status line of the R3 modules (nightmode, weather, settings), or false.
+// Stubs return empty lines, so the status page and /info are unchanged until the modules are filled in.
+static bool r3Line(uint8_t k, char* buf, size_t n) {
+  for (uint8_t i = 0; i < 3; i++) {
+    buf[0] = 0;
+    if (i == 0) nightmode::statusLine(buf, n);
+    else if (i == 1) wxnet::statusLine(buf, n);
+    else config::statusLine(buf, n);
+    if (buf[0] && k-- == 0) return true;
+  }
+  buf[0] = 0;
+  return false;
+}
+
 static void handleRoot() {
   touch();
   if (ESP.getFreeHeap() < LOW_HEAP_PAGE) { server.send_P(200, PSTR("text/html"), PAGE_LOWMEM); return; }
   beginPage();
-  Out o;
+  Out o(server);
   char tmp[64];
   o.p(PSTR("<h2>GeekQuest clock</h2>"));
   if (s_safe) o.p(PSTR("<div class='box warn'><b>Safe mode.</b> The game is not running (it crashed repeatedly or safe mode was requested). Install a fixed firmware below, or restart normally.</div>"));
@@ -515,7 +525,21 @@ static void handleRoot() {
     prefs::probeText(pt, sizeof(pt));
     o.p(PSTR("<div class='box'><small>")); o.esc(pt); o.p(PSTR("</small></div>"));
   }
-  o.p(PSTR("<p><a href='/update'>Update firmware</a> <a href='/wifi'>WiFi setup</a></p>"));
+  {                                       // RECOVERY-CHANGE (R3-0F): second read-only probe (program area, 0xFF000) and the R3 hook lines
+    char pt[176];
+    prefs::spareText(pt, sizeof(pt));
+    o.p(PSTR("<div class='box'><small>")); o.esc(pt); o.p(PSTR("</small></div>"));
+    if (r3Line(0, pt, sizeof(pt))) {
+      o.p(PSTR("<div class='box'><small>"));
+      for (uint8_t i = 0; r3Line(i, pt, sizeof(pt)); i++) { if (i) o.p(PSTR("<br>")); o.esc(pt); }
+      o.p(PSTR("</small></div>"));
+    }
+  }
+  o.p(PSTR("<p><a href='/update'>Update firmware</a> <a href='/wifi'>WiFi setup</a>"));
+#if GQ_HAVE_CONFIG_PAGE
+  if (!s_safe) o.p(PSTR(" <a href='/config'>Clock settings</a>"));
+#endif
+  o.p(PSTR("</p>"));
 
   // ---- settings
   const GqSettings& st = prefs::settings();
@@ -541,7 +565,7 @@ static void handleRoot() {
 static void handleInfo() {
   touch();
   beginChunked(200, F("application/json"));
-  Out o;
+  Out o(server);
   char tmp[64];
   o.f(PSTR("{\"version\":\"%s\",\"safe_mode\":%s,\"crashes\":%u,\"slow\":%u"), GQ_VERSION, s_safe ? "true" : "false", (unsigned)s_crashes, (unsigned)s_r2.slow);
   {
@@ -572,7 +596,17 @@ static void handleInfo() {
     prefs::probeText(pt, sizeof(pt));
     o.esc(pt);
   }
-  o.p(PSTR("\"}"));
+  {                                       // RECOVERY-CHANGE (R3-0F): spare sector probe and R3 lines (key only when a module has something to say)
+    char pt[176];
+    prefs::spareText(pt, sizeof(pt));
+    o.p(PSTR("\",\"spare_sector\":\"")); o.esc(pt); o.p(PSTR("\""));
+    if (r3Line(0, pt, sizeof(pt))) {
+      o.p(PSTR(",\"r3\":\""));
+      for (uint8_t i = 0; r3Line(i, pt, sizeof(pt)); i++) { if (i) o.p(PSTR(" | ")); o.esc(pt); }
+      o.p(PSTR("\""));
+    }
+  }
+  o.p(PSTR("}"));
   o.flush();
   endChunked();
 }
