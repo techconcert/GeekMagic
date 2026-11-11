@@ -250,12 +250,20 @@ static void hero_step(Actor* h, uint32_t dt) {
       } else if (h->phase == 2 && h->timer <= 0) {
         show_hero(h);
         h->dir = DIR_DOWN;
+        GqGoal bought;
+        int had_goal = econ_goal(&bought);
         if (econ_buy_goal()) {
-          char msg[40] = "NEW PURSE!|HOLDS ";
-          int n = str_len(msg);
-          itoa_into(msg + n, econ_coin_cap());
-          n = str_len(msg);
-          str_copy(msg + n, " COINS", 40 - n);
+          // "BOUGHT|AXE II!", "BUILT|WELL!" or, in village-fund mode, "VILLAGE FUND|+1 STAR!"
+          char msg[40];
+          if (had_goal) {
+            str_copy(msg, bought.is_project ? "BUILT|" : "BOUGHT|", 40);
+            int n = str_len(msg);
+            econ_goal_name(bought.index, msg + n, 40 - n);
+            n = str_len(msg);
+            str_copy(msg + n, "!", 40 - n);
+          } else {
+            str_copy(msg, "VILLAGE FUND|+1 STAR!", 40);
+          }
           ui_say(A_HERO, msg, 2500);
           h->emote = I_HEART;
           h->phase = 3;

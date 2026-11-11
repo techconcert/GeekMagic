@@ -48,6 +48,12 @@ void econ_friend_add(int npc, int delta);
 int  econ_friend(int npc);
 void econ_collect(int collectible);              // sets seen bit, emits NEW_COLLECTIBLE once
 int  econ_meal_price(void);                      // 0 = already ate enough today
+// additions by chunk 4 (nothing above changed)
+int  econ_item_icon(int item);                   // items.png cell for an item id
+int  econ_goal_count(void);                      // 22
+void econ_goal_name(int goal, char* buf, int cap);   // short name, at most 9 characters
+int  econ_goal_band(char* name, int cap, int* num, int* den);  // band: name, coins so far, price; 0 = village fund mode
+void econ_ach_name(int index, char* buf, int cap);   // achievement name, at most 13 characters
 
 // ---- quest.cpp (chunk 5)
 void quest_init(void);
