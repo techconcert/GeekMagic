@@ -6,6 +6,7 @@
 uint8_t  g_ground[GC_ROWS][GC_COLS];
 uint8_t  g_obj[GC_ROWS][GC_COLS];
 uint16_t g_pal[16];
+uint16_t g_act[16];     // palette for actors and items (for now a copy of g_pal)
 uint16_t g_ui[16];
 uint32_t g_dirty;
 char     g_status[4][32];
@@ -31,6 +32,10 @@ uint32_t gc_rnd() {
   g_rng ^= g_rng << 13; g_rng ^= g_rng >> 17; g_rng ^= g_rng << 5;
   return g_rng;
 }
+
+uint32_t gc_rng_get(void) { return g_rng; }
+void gc_rng_set(uint32_t state) { g_rng = state ? state : 0x1234567u; }
+int gc_scene_id(void) { return g_scene; }
 
 void mark_rows(int y, int h) {
   if (h <= 0) return;
@@ -74,6 +79,19 @@ void set_tint(int r256, int g256, int b256) {
     g_pal[i] = (uint16_t)((r << 11) | (g << 5) | b);
   }
   g_pal[0] = g_ui[0] = 0;
+  for (int i = 0; i < 16; i++) g_act[i] = g_pal[i];
+}
+
+// Look = palette inputs for this moment (design 6.2). For now only the tint is used.
+// Marks every strip dirty only when the quantised tint changed.
+static int g_look_key = -1;
+void gfx_set_look(const GqLook* look) {
+  int r = look->tr, g = look->tg, b = look->tb;
+  int key = (r >> 3) << 12 | (g >> 3) << 6 | (b >> 3);   // ignore tiny changes
+  if (key == g_look_key) return;
+  g_look_key = key;
+  set_tint(r, g, b);
+  gc_mark_all_dirty();
 }
 
 extern "C" void gc_set_depth(int percent) {
@@ -107,7 +125,7 @@ void blit_tile(uint16_t* out, int x, const uint8_t* tile, int transparent) {
   }
 }
 
-void blit_sprite(uint16_t* out, int y0, int sx, int sy, const uint8_t* cell, int flip, const uint8_t* remap) {
+void blit_sprite(uint16_t* out, int y0, int sx, int sy, const uint8_t* cell, int flip, const uint8_t* remap, const uint16_t* pal) {
   for (int r = 0; r < 16; r++) {
     int py = sy + r - y0;
     if (py < 0 || py >= GC_STRIP_H) continue;
@@ -119,7 +137,7 @@ void blit_sprite(uint16_t* out, int y0, int sx, int sy, const uint8_t* cell, int
       uint8_t p = (c & 1) ? (v & 15) : (v >> 4);
       if (!p) continue;
       if (remap) p = remap[p];
-      out[py * GC_W + px] = g_pal[p];
+      out[py * GC_W + px] = pal[p];
     }
   }
 }
@@ -298,7 +316,7 @@ static void test_render(int s, uint16_t* out) {
   if (g_th.y < y0 + GC_STRIP_H && g_th.y + 16 > y0) {
     static const uint8_t cycle[4] = {0, 1, 0, 2};
     int row = g_th.dir == DIR_RIGHT ? (int)DIR_LEFT : (int)g_th.dir;
-    blit_sprite(out, y0, g_th.x, g_th.y, GC_CHARS(HERO_CELL_BASE[row] + cycle[g_th.step]), g_th.dir == DIR_RIGHT, 0);
+    blit_sprite(out, y0, g_th.x, g_th.y, GC_CHARS(HERO_CELL_BASE[row] + cycle[g_th.step]), g_th.dir == DIR_RIGHT, 0, g_act);
   }
   if (s == 0) draw_test_top(out, y0);
   if (s == GC_ROWS - 1) draw_test_bottom(out, y0);
@@ -325,6 +343,7 @@ extern "C" void gc_init(int scene, uint32_t seed, int swap_bytes) {
   g_swap = swap_bytes;
   g_rng = seed ? seed : 0x1234567u;
   set_tint(256, 256, 256);
+  g_look_key = -1;
   g_status_cur = 0;
   g_status_acc = 0;
   if (scene == GC_SCENE_VILLAGE) village_init(seed);

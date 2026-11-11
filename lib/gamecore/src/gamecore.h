@@ -46,6 +46,28 @@ void gc_mark_all_dirty(void);
 // Render one 240x16 strip into out[240*16].
 void gc_render_strip(int strip, uint16_t* out);
 
+// ---- persistence. The core does no I/O; the caller stores the bytes.
+#define GC_SAVE_BYTES 192
+enum { GC_SAVE_OK = 0, GC_SAVE_ERR_LEN, GC_SAVE_ERR_MAGIC, GC_SAVE_ERR_VERSION, GC_SAVE_ERR_CRC };
+int      gc_save_export(uint8_t* buf, int cap);        // village scene only. Returns GC_SAVE_BYTES, or 0.
+int      gc_save_check(const uint8_t* buf, int len);   // 0 = would be accepted; else GC_SAVE_ERR_*. No side effects.
+int      gc_save_import(const uint8_t* buf, int len);  // 1 = accepted, sanitized, applied. 0 = rejected, nothing changed.
+uint32_t gc_save_serial(void);                         // changes whenever saved state changed and is worth saving
+void     gc_reset_game(void);                          // day 1 defaults (same as a first boot)
+
+// ---- environment
+enum { GC_NET_ONLINE = 0, GC_NET_OFFLINE = 1, GC_NET_AP_ONLY = 2 };
+enum { GC_OPT_CARD_PERIOD = 0, GC_OPT_NIGHT_QUIET = 1 };
+void gc_set_date(int year, int month, int day, int weekday, uint32_t epoch);  // year 0 = unknown; weekday 0 = Sunday
+void gc_set_clock_quality(int approximate);     // 1 = restored after a restart, not NTP-synced yet
+void gc_set_net(int state);                     // GC_NET_ONLINE 0, GC_NET_OFFLINE 1, GC_NET_AP_ONLY 2
+void gc_set_option(int key, int value);         // GC_OPT_CARD_PERIOD (minutes, 0 = off), GC_OPT_NIGHT_QUIET (0/1)
+
+// ---- introspection for tests, the preview and the status page
+// Keys are GQ_Q_* and commands GQ_DBG_* (gq_types.h). Unknown key returns 0, unknown command does nothing.
+int32_t gc_query(int key);
+void    gc_debug(int cmd, int32_t arg);
+
 #ifdef __cplusplus
 }
 #endif

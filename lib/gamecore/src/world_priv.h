@@ -34,6 +34,9 @@ struct Actor {
   int16_t ex, ey;          // emote position override (e.g. at a door), ex<0 = above head
   uint8_t bob;             // bobber offset while fishing
   int8_t manual_dx;        // walking off/onto the screen edge
+  int8_t marker_icon;      // hero only: icon alternated with I_FACE at a door while he is inside, or I_NONE
+  uint8_t mark_alt;
+  uint16_t mark_acc;
   // ai
   uint8_t act, phase, talking, home;
   int32_t timer;           // ms
@@ -45,7 +48,7 @@ struct Actor {
 
 extern Actor A[A_COUNT];
 
-// ---- world.cpp
+// ---- world.cpp (the rest of the world API is in gq_mod.h)
 int  rnd_range(int lo, int hi);
 void recompute_walk(void);
 int  walkable(int x, int y);
@@ -56,27 +59,15 @@ int  find_path(Actor* a, int gx, int gy);
 int  arrived(const Actor* a);
 void face(Actor* a, int tx, int ty);
 void place(Actor* a, int tx, int ty);
-void world_init(void);
-void world_tick(uint32_t dt);
-void world_render(int strip, uint16_t* out);
 
 // ---- hero.cpp, npc.cpp
 void hero_tick(Actor* h, uint32_t dt);
+void hero_update_presence(void);
+void hero_force_activity(int gq_act);
+const char* hero_place_name(int place);
+int  hero_place_icon(int place);   // tile cell used as the place icon on the postcard
 void npc_tick(int i, uint32_t dt);
 
 // ---- ui.cpp
-void ui_init(void);
-void ui_tick(uint32_t dt);
-void ui_render(int strip, uint16_t* out);
-void ui_say(int who, const char* text, int32_t hold_ms);   // dialogue box; text is copied (40 bytes)
-int  ui_dialogue_done(void);
 void itoa_into(char* p, int v);
 
-// ---- calendar.cpp
-void cal_init(void);
-void cal_tick(uint32_t dt);
-int  cal_minute(void);
-int  cal_is_night(void);
-
-// ---- shared game state (game.cpp)
-extern int g_wood, g_gold, g_fish;

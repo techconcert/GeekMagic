@@ -48,6 +48,7 @@ int find_path(Actor* a, int gx, int gy) {
   a->plen = a->pidx = 0;
   if (!walkable(gx, gy)) return 0;
   int sx = tile_x(a), sy = tile_y(a);
+  if (sx < 0 || sy < 0 || sx >= GC_COLS || sy >= GC_ROWS) return 0;   // off the map: nothing to search from
   if (sx == gx && sy == gy) return 1;
   static uint8_t prev[GC_ROWS * GC_COLS];
   static uint8_t queue[GC_ROWS * GC_COLS];
@@ -267,6 +268,7 @@ void world_init(void) {
     *a = Actor();
     a->visible = 1;
     a->item = a->emote = I_NONE;
+    a->marker_icon = I_NONE;
     a->ex = a->ey = -1;
     a->dir = DIR_DOWN;
     a->ms_per_px = i == A_HERO ? 24 : 34;
@@ -310,6 +312,7 @@ void world_tick(uint32_t dt) {
   for (int i = 1; i < A_COUNT; i++) npc_tick(i, dt);
   for (int i = 0; i < A_COUNT; i++) move_actor(&A[i], dt);
   track_dirty();
+  hero_update_presence();
 }
 
 void world_render(int s, uint16_t* out) {
@@ -330,6 +333,16 @@ void world_render(int s, uint16_t* out) {
     const Op& o = ops[i];
     if (o.y >= y0 + GC_STRIP_H || o.y + 16 <= y0) continue;
     const uint8_t* remap = (o.sheet == SH_CHARS && o.actor != A_HERO) ? REMAP[o.actor] : 0;
-    blit_sprite(out, y0, o.x, o.y, sheet_cell(o.sheet, o.cell), o.flip, remap);
+    blit_sprite(out, y0, o.x, o.y, sheet_cell(o.sheet, o.cell), o.flip, remap, g_act);
   }
+}
+
+// chunk 3 fills these in; chunk 0 has one area and no area-dependent events.
+void world_on_event(int ev, int a, int b) { (void)ev; (void)a; (void)b; }
+int world_area(void) { return GQ_AREA_VILLAGE; }
+
+int world_actor_count(void) {
+  int n = 0;
+  for (int i = 0; i < A_COUNT; i++) if (A[i].visible && A[i].x > -16 && A[i].x < GC_W) n++;
+  return n;
 }

@@ -1,6 +1,8 @@
 // Shared internals of the game core (not part of the public API).
 #pragma once
 #include "gamecore.h"
+#include "gq_types.h"
+#include "gq_mod.h"
 #include "assets_gen.h"
 
 // ---- tile ids in assets/src/tiles.png ----
@@ -18,6 +20,7 @@ enum {
 enum {
   I_AXE_UP = 0, I_AXE_DOWN = 1, I_ROD = 2, I_BOBBER = 3, I_LOG = 4,
   I_BUBBLE = 5, I_ZZZ = 6, I_FISH = 7, I_COIN = 8, I_WOOD = 9, I_HEART = 10,
+  I_STAR = 32, I_FACE = 34,
   I_NONE = -1
 };
 
@@ -39,6 +42,9 @@ extern char     g_status[4][32];
 extern int      g_hour, g_min, g_clock_valid;
 
 uint32_t gc_rnd();
+uint32_t gc_rng_get(void);
+void gc_rng_set(uint32_t state);
+int gc_scene_id(void);
 void mark_rows(int y, int h);
 void str_copy(char* dst, const char* src, int cap);
 int str_len(const char* s);
@@ -47,15 +53,16 @@ void set_tint(int r256, int g256, int b256);
 // ---- drawing into one 240x16 strip whose top is at y0 ----
 const uint8_t* sheet_cell(int sheet, int cell);
 void blit_tile(uint16_t* out, int x, const uint8_t* tile, int transparent);
-void blit_sprite(uint16_t* out, int y0, int sx, int sy, const uint8_t* cell, int flip, const uint8_t* remap);
+void blit_sprite(uint16_t* out, int y0, int sx, int sy, const uint8_t* cell, int flip, const uint8_t* remap, const uint16_t* pal);
 void fill_rect(uint16_t* out, int y0, int x, int y, int w, int h, uint16_t c);
 void darken_rect(uint16_t* out, int y0, int x, int y, int w, int h);
 void draw_text(uint16_t* out, int y0, int x, int y, const char* s, uint16_t c, int scale, int shadow);
 void draw_text_n(uint16_t* out, int y0, int x, int y, const char* s, int n, uint16_t c, int scale);
 void render_ground_row(uint16_t* out, int s, uint8_t water_frame, uint8_t fire_frame);
 
-// ---- village scene (village.cpp) ----
+// ---- village scene (game.cpp) ----
 void village_init(uint32_t seed);
 void village_tick(uint32_t dt);
 void village_render(int s, uint16_t* out);
 void village_status_changed();
+void gq_pump(void);   // deliver queued events (game.cpp)
