@@ -16,7 +16,7 @@ import time
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.join(HERE, "..")
+ROOT = os.path.join(HERE, "..", "..")
 sys.path.insert(0, HERE)
 import config_page_server as stand  # noqa: E402
 
@@ -25,7 +25,7 @@ CODES = ["", "M_LAT", "M_LON", "M_PAIR", "M_PLACE", "M_SLEEP", "M_WAKE", "M_SAME
 
 def xcheck():
     exe = os.path.join(tempfile.mkdtemp(), "xcheck")
-    subprocess.check_call(["g++", "-std=c++17", "-O1", "-Wall", "-Wextra", "-Werror", os.path.join(HERE, "config_xcheck.cpp"),
+    subprocess.check_call(["g++", "-std=c++17", "-O1", "-Wall", "-Wextra", "-Werror", os.path.join(HERE, "..", "config_xcheck.cpp"),
                            os.path.join(ROOT, "lib/gqsafe/src/gqconf.cpp"), os.path.join(ROOT, "lib/gqsafe/src/gq_crc32.cpp"), "-o", exe])
     rnd = random.Random(7)
     alpha = "0123456789.,-+ :abXY<>&'\""
