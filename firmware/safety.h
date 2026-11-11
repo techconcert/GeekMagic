@@ -8,7 +8,7 @@
 #define GQ_MDNS 0   // 1 = answer geekquest.local (about 19 KB of code); the clock shows its IP address either way
 #endif
 
-class ESP8266WebServer;
+#include <ESP8266WebServer.h>   // ESP8266WebServer is a using-alias in the core: it cannot be forward declared
 
 namespace safety {
 
