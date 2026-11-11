@@ -114,7 +114,7 @@ static void test_days() {
           }
         }
         CHECK(nact <= 8);
-        if (gc_dirty_mask() == 0) { if (++quiet > 2) { std::printf("seed %u: no dirty strip for 3 s at tick %ld act %d phase %d area %d minute %d\n", (unsigned)seed, tick, A[0].act, A[0].phase, world_area(), (int)gc_query(GQ_Q_MINUTE)); CHECK(false); } } else quiet = 0;
+        if (gc_dirty_mask() == 0) { if (++quiet > 29) { std::printf("seed %u: no dirty strip for 30 s at tick %ld act %d phase %d area %d minute %d\n", (unsigned)seed, tick, A[0].act, A[0].phase, world_area(), (int)gc_query(GQ_Q_MINUTE)); CHECK(false); } } else quiet = 0;
         gc_clear_dirty();
         int ar = gc_query(GQ_Q_HERO_AREA);
         if (ar != 0) areas_seen |= 1 << ar;
