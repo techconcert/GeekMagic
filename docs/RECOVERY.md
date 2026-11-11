@@ -42,7 +42,7 @@ The status page also shows one line **Save sector 0x3FA000: blank** (or "in use 
 
 - **Automatic restarts** (approved in R2, on): when WiFi has been gone for hours and the ladder of reconnect attempts did not help, when memory stays very low for a minute, and once a week at night (04:00 to 04:30 when the clock knows the time, otherwise while the hero sleeps) if nobody has used the web page for 5 minutes and nobody is on the rescue network. They are not allowed in the first 30 minutes after power-on, never during a firmware upload (a pending automatic restart waits until the upload is over), and every restart counts in the crash counters: if the clock keeps restarting it ends in safe mode. The weekly restart can be switched off on the status page.
 - **Strict upload checks** (refuse a file that arrived damaged or is not a GeekQuest build). Still off: the update page shows the file's CRC32 number and warns, and the clock records what the check would have said, but it installs exactly as before. Needs your written OK.
-- **WiFi modem sleep off** (`GQ_NET_NO_SLEEP`, about 0.25 W more power). Still off, needs your written OK.
+- **WiFi modem sleep off** (`GQ_NET_NO_SLEEP`, about 0.25 W more power). Approved 2026-11-11 and ON (the backend page was dropping while the hotspot stayed up).
 - **Flash saving**: does not exist in R2 (it is planned for a later release, after the sector probe above has been seen on the real clock).
 
 ## Before you install a new version (pre-flash checklist)

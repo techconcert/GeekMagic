@@ -197,13 +197,12 @@ class Lint:
         for needle in (r"eagle\.flash\.4m3m\.ld", r"flash_size\s*=\s*4MB", r"flash_mode\s*=\s*dio"):
             if not re.search(needle, t):
                 self.add("L6", rel, 1, "platformio.ini must contain " + needle.replace("\\", ""))
-        # L8: approval switches. Approved so far: A2 automatic restarts (ON). A4 strict upload checks stays OFF, A3 (modem
-        # sleep off, -DGQ_NET_NO_SLEEP) is not approved, A1 (flash saving) no longer exists. Changing one is a deliberate
+        # L8: approval switches. Approved so far: A2 automatic restarts (ON), A3 modem sleep off (ON). A4 strict upload checks stays OFF, A1 (flash saving) no longer exists. Changing one is a deliberate
         # edit of this rule as well.
         if re.search(r"GQ_FLASH_SAVE", t):
             self.add("L8", rel, 1, "GQ_FLASH_SAVE must not appear: R2 has no flash saving at all")
-        if re.search(r"GQ_NET_NO_SLEEP", t):
-            self.add("L8", rel, 1, "-DGQ_NET_NO_SLEEP (A3, modem sleep off) is not approved")
+        if not re.search(r"^\s*-DGQ_NET_NO_SLEEP=1\s*$", t, re.M):
+            self.add("L8", rel, 1, "[env] build_flags must contain -DGQ_NET_NO_SLEEP=1 (A3, modem sleep off, approved 2026-11-11)")
         if not re.search(r"^\s*-DGQ_AUTO_RESTART=1\s*$", t, re.M):
             self.add("L8", rel, 1, "[env] build_flags must contain -DGQ_AUTO_RESTART=1 (A2, approved)")
         if not re.search(r"^\s*-DGQ_STRICT_UPLOAD=0\s*$", t, re.M):
