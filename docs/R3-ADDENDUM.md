@@ -8,3 +8,4 @@ Read after DESIGN-R3.md. Where they differ, this file wins.
 4. **No phone backup/restore.** The owner explicitly rejected it. Drop the localStorage restore banner (design 5.4) and everything like it.
 5. **Size:** the base .bin is 419,680 B. R3 total budget +26 KB flash cap as in the design; keep the image under 470 KB, and remember float printf/scanf are linked out (lint L9 forbids float formatting/parsing: use integer maths, parse the JSON by hand).
 6. Keep the commit rules: any change to a recovery-contract file needs a commit message line `RECOVERY-CHANGE: <why>` and an increment of GQ_RECOVERY_REV in safety.cpp (CI guard). The owner has no serial flasher: the /update page and rescue AP must keep working in every build; never weaken a gate.
+
