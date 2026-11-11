@@ -1,0 +1,108 @@
+# FINN, the fisher. Voice: few words, long pauses, the sea and the tide for every comparison.
+# Running jokes: he waits for OLD GRUMBLE, one huge fish, for twenty years; the hero fills the silence; the waves are his dance partners.
+# Counts: 20 scripts, 55 lines = 8 of 2 turns, 9 of 3, 3 of 4; the hero opens at least 6 (see docs/DESIGN-R3.md 4.5).
+# Run:  python3 tools/gen_talk.py --check content/talk/finn.txt
+
+# ---------------------------------------------------------------- ANY: personality (3)
+@ ANY
+H: ANY BITES TODAY,|{N}?
+N: THE SEA DECIDES.
+
+@ ANY
+N: TIDE'S COMING IN.
+H: HOW DO YOU KNOW?|I SEE NO TIDE.
+N: LIKE BRAM'S TALES.|SLOW. THEN FLOODS.
+
+@ ANY
+H: WHICH FISH ARE YOU|WAITING FOR, {N}?
+N: OLD GRUMBLE.
+H: IS THAT A FISH, OR|SOMEONE'S GRANDPA?
+N: BOTH, MAYBE.
+
+# ---------------------------------------------------------------- TIME (2)
+@ TIME MORNING
+N: DAWN. THE SEA IS|QUIET. LIKE ME.
+H: THEN WE'LL BE QUIET|TOGETHER. DEAL?
+
+@ TIME EVENING
+H: THE SUN IS SETTING.|ISN'T IT PRETTY?
+N: THE SEA TURNS GOLD.|IT'S SHOWING OFF.
+
+# ---------------------------------------------------------------- WEATHER AND TEMPERATURE (3)
+@ WX FOG
+N: FOG. THE SEA IS|TRYING TO WALK.
+H: BUT IT HAS NO LEGS.|HOW FAR CAN IT GET?
+N: TIDES ARE ITS LEGS.|SLOW. BUT ALWAYS.
+
+@ WX WINDY
+H: THE WIND PUSHES ME|AROUND, {N}!
+N: LEAN IN. WAVES DO.
+
+@ TEMP HOT
+H: {T}! I'M MELTING|INTO MY BOOTS.
+N: THE SEA IS COLD.|WADE IN, AS A CRAB.
+H: CRAB WITH A SWORD.|TERRIFYING!
+
+# ---------------------------------------------------------------- SEASON (2)
+@ SEASON SPRING
+N: SPRING. FISH ARE|BACK. SO IS HOPE.
+H: DOES HOPE BITE|BETTER THAN BAIT?
+
+@ SEASON WINTER
+H: ICE ON THE DOCK,|{N}! WHY STAY OUT?
+N: THE SEA SLEEPS.|SOMEONE STAYS UP.
+
+# ---------------------------------------------------------------- FESTIVAL (1)
+@ FEST RUNNING
+H: WON'T YOU DANCE|AT THE FESTIVAL?
+N: I DANCE. WITH THE|WAVES. ALL DAY.
+H: AND THE WAVES ARE|GOOD PARTNERS?
+N: THEY NEVER STEP|ON MY FEET.
+
+# ---------------------------------------------------------------- WHAT THE HERO JUST DID (3)
+@ DID FISHED
+H: I CAUGHT A FISH,|{N}! A REAL ONE!
+N: SIZE?
+H: OKAY, SMALL. BUT IT|SPARKLED!
+N: THE SEA GAVE.|YOU TOOK. GOOD.
+
+@ DID FOUGHT
+H: I FOUGHT A MONSTER|AND WON, {N}!
+N: A MONSTER? EASY.|TRY HITTING A WAVE.
+
+@ DID ATE
+N: YOU SMELL OF FISH.|MINE, I HOPE.
+H: YOURS! ODDA FRIED|IT GOLDEN.
+N: GOOD. THE SEA|THANKS YOU.
+
+# ---------------------------------------------------------------- QUEST AND CHAPTER (2)
+@ QUEST NONE
+H: ANY JOBS FOR ME?|I'M RESTLESS, {N}.
+N: SIT. WATCH THE SEA.|THAT'S A JOB.
+H: THE SEA IS A BAD|BOSS. NEVER PAYS.
+
+@ QUEST STORY
+N: BELL'S QUIET. THE|SEA'S QUIET TOO.
+H: IT'S WAITING FOR ME|TO FIX IT?
+N: TIDES WAIT FOR|NOBODY.
+
+# ---------------------------------------------------------------- FRIENDSHIP, one per tier (3)
+@ FRIEND 1
+N: YOU AGAIN.
+H: IS THAT GOOD OR|BAD, {N}?
+N: TIDES COME BACK.|THAT'S GOOD.
+
+@ FRIEND 2
+H: YOU TALK MORE THAN|BEFORE, {N}.
+N: YOU WASHED UP ONE|DAY. I KEPT YOU.
+
+@ FRIEND 3
+N: SIT. I MADE YOU A|SPOT ON THE DOCK.
+H: A WHOLE SPOT, JUST|FOR ME? I'M MOVED.
+N: BEST SEAT. CLOSEST|TO THE FISH.
+
+# ---------------------------------------------------------------- GOAL (1)
+@ GOAL PROJECT
+N: {G}. SLOW.
+H: HOW SLOW? A WHOLE|SEASON SLOW?
+N: LONG AS A TIDE. NOT|AS LONG AS GRUMBLE.
