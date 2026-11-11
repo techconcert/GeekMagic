@@ -23,6 +23,7 @@ void gq_touch(void) { G.serial++; }
 static void dispatch(int ev, int a, int b) {
   econ_on_event(ev, a, b);
   quest_on_event(ev, a, b);
+  talk_on_event(ev, a, b);
   cal_on_event(ev, a, b);
   world_on_event(ev, a, b);
   ui_on_event(ev, a, b);
@@ -64,6 +65,7 @@ static void init_modules(void) {
   cal_init();
   econ_init();
   quest_init();
+  talk_init();
   world_init();
   ui_init();
   apply_look();
@@ -145,7 +147,20 @@ extern "C" void gc_set_net(int state) {
 extern "C" void gc_set_option(int key, int value) {
   if (key == GC_OPT_CARD_PERIOD) G.card_period = (uint8_t)(value < 0 ? 0 : (value > 255 ? 255 : value));
   else if (key == GC_OPT_NIGHT_QUIET) G.night_quiet = value ? 1 : 0;
+  else if (key == GC_OPT_SLEEP_MODE && value >= 0 && value <= 2) G.sleep_mode = (uint8_t)value;
 }
+
+extern "C" void gc_set_live_weather(int wx, int temp_c10, int flags) {
+  G.live_wx1 = (wx >= 0 && wx < GQ_W_COUNT) ? (uint8_t)(wx + 1) : 0;
+  G.live_temp10 = (int16_t)(temp_c10 < -999 ? -999 : (temp_c10 > 999 ? 999 : temp_c10));
+  G.live_flags = (uint8_t)(flags & 7);
+}
+
+// Stubs of the R3 weather functions: nothing is live, so today's behaviour. Chunk W2 replaces them in calendar.cpp.
+__attribute__((weak)) int cal_live(void) { return 0; }
+__attribute__((weak)) int cal_weather_shown(void) { return cal_weather(); }
+__attribute__((weak)) int cal_temp(int* out, int* is_f) { (void)out; (void)is_f; return 0; }
+__attribute__((weak)) int cal_temp_c(int* out) { (void)out; return 0; }
 
 // ------------------------------------------------------------ introspection
 static int popcount8(const uint8_t* p, int n) {
@@ -201,6 +216,11 @@ extern "C" int32_t gc_query(int key) {
     case GQ_Q_SEEN_COUNT: return popcount8(s.seen, 8);
     case GQ_Q_CARD: return ui_card_id();
     case GQ_Q_ACTORS_VISIBLE: return world_actor_count();
+    case GQ_Q_HERO_ABED: return hero_in_bed();
+    case GQ_Q_LIVE_WX: return (int)G.live_wx1 - 1;
+    case GQ_Q_LIVE_TEMP: return G.live_temp10;
+    case GQ_Q_LIVE_FLAGS: return G.live_flags;
+    case GQ_Q_SLEEP_MODE: return G.sleep_mode;
     default: return 0;
   }
 }
@@ -229,6 +249,8 @@ extern "C" void gc_debug(int cmd, int32_t arg) {
     case GQ_DBG_NEXT_DAY: new_day(); break;
     case GQ_DBG_START_QUEST: quest_debug_start(arg); break;
     case GQ_DBG_SHOW_CARD: ui_debug_show_card(arg); break;
+    case GQ_DBG_FORCE_CHAT: hero_force_chat(arg); break;
+    case GQ_DBG_TALK_TURNS: G.dbg_turns = (uint8_t)(arg >= 2 && arg <= 4 ? arg : 0); break;
     default: break;
   }
 }

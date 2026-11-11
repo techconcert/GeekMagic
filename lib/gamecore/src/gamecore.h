@@ -51,11 +51,22 @@ void     gc_reset_game(void);
 
 // ---- environment
 enum { GC_NET_ONLINE = 0, GC_NET_OFFLINE = 1, GC_NET_AP_ONLY = 2 };
-enum { GC_OPT_CARD_PERIOD = 0, GC_OPT_NIGHT_QUIET = 1 };
+enum { GC_OPT_CARD_PERIOD = 0, GC_OPT_NIGHT_QUIET = 1,
+       GC_OPT_SLEEP_MODE = 2 };   // 0 = built-in night (default), 1 = schedule in use: stay up, 2 = go to bed and sleep
 void gc_set_date(int year, int month, int day, int weekday, uint32_t epoch);  // year 0 = unknown; weekday 0 = Sunday
 void gc_set_clock_quality(int approximate);     // 1 = restored after a restart, not NTP-synced yet
 void gc_set_net(int state);                     // GC_NET_ONLINE 0, GC_NET_OFFLINE 1, GC_NET_AP_ONLY 2
-void gc_set_option(int key, int value);         // GC_OPT_CARD_PERIOD (minutes, 0 = off), GC_OPT_NIGHT_QUIET (0/1)
+void gc_set_option(int key, int value);         // GC_OPT_CARD_PERIOD (minutes, 0 = off), GC_OPT_NIGHT_QUIET (0/1),
+                                                // GC_OPT_SLEEP_MODE (0..2, other values are ignored)
+
+// Live weather (R3). Call once a second with the current reading; the values are clamped.
+// wx = GQ_W_* 0..6 or GC_WX_NONE (anything else counts as none); temp_c10 = tenths of a degree Celsius
+// (-999..999); flags = GC_WXF_*. Not saved; game rules ignore it until calendar.cpp uses it.
+#define GC_WX_NONE  (-1)
+#define GC_WXF_FAHRENHEIT 1     // display unit
+#define GC_WXF_NIGHT      2     // is_day == 0
+#define GC_WXF_STALE      4     // age class 2
+void gc_set_live_weather(int wx, int temp_c10, int flags);
 
 // ---- introspection for tests, the preview and the status page
 // Keys are GQ_Q_* and commands GQ_DBG_* (gq_types.h). Unknown key returns 0, unknown command does nothing.

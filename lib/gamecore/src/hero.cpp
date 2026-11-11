@@ -6,19 +6,6 @@
 
 enum { ACT_NONE = GQ_ACT_NONE, ACT_HOME = 32, ACT_BREAKFAST = 33, ACT_FEST = 34 };
 
-static const char* const LINES[8][2] = {
-  {"FRESH APPLES TODAY|WANT TO TRADE?", "WOOD SELLS WELL|THIS WEEK."},
-  {"IN MY DAY WE HAD|NO FANCY SWORDS.", "THE CAVES HUM AT|NIGHT. CAREFUL."},
-  {"TEACH ME TO USE|A SWORD!", "I SAW A FROG AS|BIG AS A DOG!"},
-  {"STEW IS ON THE|FIRE. SIT, EAT!", "BEST SEAT IS BY|THE HEARTH."},
-  {"THE FISH ARE|BITING TODAY.", "WATCH THE TIDE,|HERO."},
-  {"MEASURE TWICE,|CUT ONCE.", "THE VILLAGE IS|GROWING NICELY."},
-  {"THE FOREST WHISPERS|IF YOU LISTEN.", "MIND THE SLIMES|IN THE MOSS."},
-  {"RARE WARES FROM|FAR AWAY!", "SEE ANYTHING YOU|LIKE?"},
-};
-static const char* const REPLIES[] = {
-  "HA! MAYBE LATER.", "I'LL KEEP WATCH.", "SOUNDS GOOD!", "SURE THING.", "TELL ME MORE!",
-};
 static const char* const PLACE_NAME[4] = {"CAVES", "RUINS", "FOREST", "TOWER"};
 static const uint8_t PLACE_ICON[4] = {T_ROCK, T_FENCE, T_WATER, T_WALL_DOOR};
 const char* hero_place_name(int place) { return PLACE_NAME[place & 3]; }
@@ -35,6 +22,16 @@ static uint8_t  s_slot, s_npc, s_item_gift, s_force_npc, s_fight_area, s_fight_q
 static uint8_t  s_win, s_swings, s_choice;
 static int      s_tx, s_ty;
 static GqNeed   s_need;
+static uint8_t  s_turns, s_turn, s_quest_chat;   // chat: number of turns, turn on screen, 1 = quest line first
+static char     s_qline[40];                     // the quest line of this chat
+
+// Does the hero's own sleep apply now? Mode 0 = the built-in night, 1 = a schedule is in use (stay up), 2 = bed time.
+static int sleep_due(void) { return G.sleep_mode == 0 ? cal_is_night() : G.sleep_mode == 2; }
+
+int hero_in_bed(void) {
+  const Actor* h = &A[A_HERO];
+  return h->act == GQ_ACT_SLEEP && (h->phase == 2 || h->phase == 4);
+}
 
 int hero_max_hearts(void) {
   int m = 3 + econ_tool(GQ_TOOL_SWORD);
@@ -160,7 +157,7 @@ static int gift_item(void) {
 
 static int pick_activity(void) {
   int m = cal_minute();
-  if (cal_is_night()) return GQ_ACT_SLEEP;
+  if (sleep_due()) return GQ_ACT_SLEEP;
   if (cal_festival() >= 0) return ACT_FEST;
   if (m >= 360 && m < 420 && s_bf_day != (uint16_t)(G.s.day + 1)) return ACT_BREAKFAST;
   int w[GQ_ACT_COUNT];
@@ -222,6 +219,30 @@ static int pick_npc(int force, int* area) {
   return id;
 }
 
+// Shows turn s_turn of the chat (docs/DESIGN-R3.md 4.4); empty turns are skipped. Returns 0 when the chat is over.
+static int chat_show(void) {
+  for (int guard = 0; guard < 4 && s_turn < s_turns; guard++, s_turn++) {
+    char buf[40];
+    int hero;
+    buf[0] = 0;
+    if (G.dbg_turns) {
+      hero = s_turn & 1;
+      str_copy(buf, "TURN ", 40);
+      itoa_into(buf + 5, s_turn + 1);
+    } else if (s_quest_chat) {
+      hero = s_turn != 0;
+      if (hero) talk_quest_reply(buf, 40);
+      else str_copy(buf, s_qline, 40);
+    } else {
+      hero = talk_turn(s_turn, buf, 40);
+    }
+    if (!buf[0]) continue;
+    ui_say(hero ? (int)GQ_NPC_HERO : (int)s_npc, buf, 2200);
+    return 1;
+  }
+  return 0;
+}
+
 static void chat_step(Actor* h, uint32_t dt, int gift) {
   Actor* n = (s_slot > 0 && s_slot < A_COUNT) ? &A[s_slot] : 0;
   switch (h->phase) {
@@ -268,38 +289,33 @@ static void chat_step(Actor* h, uint32_t dt, int gift) {
       }
       face(h, tile_x(n), tile_y(n));
       face(n, tile_x(h), tile_y(h));
-      char buf[40];
-      const char* line;
+      s_turn = 0; s_turns = 0; s_quest_chat = 0;
       if (gift && s_item_gift != 0xFF) {
+        char buf[40];
         econ_take_item(s_item_gift, 1);
         h->emote = (int8_t)item_icon(s_item_gift);
         h->pose = POSE_CHEER;
         gq_emit(GQ_EV_GIFTED, s_npc, s_item_gift);
         s_gift_day = (uint16_t)(G.s.day + 1);
-        line = "FOR ME? THANK|YOU, HERO!";
-      } else if (quest_talk(s_npc, buf, 40) && buf[0]) line = buf;
-      else {
-        quest_ambient_line(s_npc, buf, 40);
-        line = buf[0] ? buf : LINES[s_npc - 1][rnd_range(0, 1)];
+        str_copy(buf, "FOR ME? THANK|YOU, HERO!", 40);
+        ui_say(s_npc, buf, 2200);
+        h->phase = 5;
+        return;
       }
-      ui_say(s_npc, line, 2500);
-      h->phase = 5;
+      s_qline[0] = 0;
+      if (G.dbg_turns) s_turns = G.dbg_turns;
+      else if (quest_talk(s_npc, s_qline, 40) && s_qline[0]) { s_turns = 2; s_quest_chat = 1; }
+      else s_turns = (uint8_t)talk_begin(s_npc);
+      if (s_turns > 4) s_turns = 4;
+      h->phase = chat_show() ? 5 : 7;
       return;
     }
-    case 5:
+    case 5:   // a turn is on screen: wait for it, then the next one
       if (!ui_dialogue_done()) return;
       h->emote = I_NONE;
       if (gift) { h->phase = 7; return; }
-      {
-        char buf[40];
-        quest_reply_line(buf, 40);
-        say_hero(buf[0] ? buf : REPLIES[gc_rnd() % 5], 2000);
-      }
-      h->phase = 6;
-      return;
-    case 6:
-      if (!ui_dialogue_done()) return;
-      h->phase = 7;
+      s_turn++;
+      if (!chat_show()) h->phase = 7;
       return;
     default:   // 7
       if (n) npc_set_talking(s_slot, 0);
@@ -534,8 +550,32 @@ static int pick_tree(int* sx, int* sy, int* tx, int* ty) {
   return 0;
 }
 
+// Lying down in the bed (end of the walk, after the bedtime line) and getting up again.
+static void lie_down(Actor* h) {
+  h->pose = POSE_BED; h->dir = DIR_DOWN; h->emote = I_ZZZ;
+  G.s.hero_hearts = (uint8_t)hero_max_hearts();
+  gq_touch();
+  gq_emit(GQ_EV_SLEPT, 0, 0);
+  h->timer = rnd_range(180000, 300000);
+  h->phase = 2;
+}
+
+static void wake_up(Actor* h) {
+  char buf[40];
+  h->pose = POSE_NORMAL; h->emote = I_NONE;
+  gq_emit(GQ_EV_WOKE, 0, 0);
+  finish(h);
+  if (talk_solo(TALK_SOLO_WAKE, buf, 40) && buf[0]) say_hero(buf, 2200);   // morning line (the stub has none)
+}
+
 static void hero_step(Actor* h, uint32_t dt) {
   h->timer -= (int32_t)dt;
+  // Bed time (sleep mode 2): whatever he does, once nothing is on screen he walks home and the scheduler picks sleep.
+  if (G.sleep_mode == 2 && h->act != ACT_NONE && h->act != GQ_ACT_SLEEP && h->act != ACT_HOME &&
+      !ui_busy() && !world_transition_busy()) {
+    go_home(h);
+    return;
+  }
   switch (h->act) {
     case ACT_NONE:
       if (h->timer <= 0 && (ui_dialogue_done() || h->timer < -20000)) {
@@ -1029,39 +1069,33 @@ static void hero_step(Actor* h, uint32_t dt) {
           int r = tv_step(h, dt);
           if (r < 0) { go_home(h); break; }
           if (r > 0) {
-            h->pose = POSE_BED; h->dir = DIR_DOWN; h->emote = I_ZZZ;
-            G.s.hero_hearts = (uint8_t)hero_max_hearts();
-            gq_touch();
-            gq_emit(GQ_EV_SLEPT, 0, 0);
-            h->timer = rnd_range(180000, 300000);
-            h->phase = 2;
+            char buf[40];   // a bedtime line before lying down (the stub has none)
+            if (talk_solo(TALK_SOLO_BED, buf, 40) && buf[0]) { say_hero(buf, 2200); h->phase = 5; }
+            else lie_down(h);
           }
           break;
         }
+        case 5:   // saying the bedtime line
+          if (ui_dialogue_done()) lie_down(h);
+          break;
         case 2:   // asleep in the bedroom
-          if (!cal_is_night()) {
-            h->pose = POSE_NORMAL; h->emote = I_NONE;
-            gq_emit(GQ_EV_WOKE, 0, 0);
-            finish(h);
-          } else if (h->timer <= 0 && world_change_area(GQ_AREA_VILLAGE, SP_ENTRY, 0)) {   // night camera: cut to the village
+          if (!sleep_due()) wake_up(h);
+          else if (h->timer <= 0 && world_change_area(GQ_AREA_VILLAGE, SP_ENTRY, 0)) {   // night camera: cut to the village
             h->timer = 60000;
             h->phase = 3;
           }
           break;
         case 3:   // the camera shows the night village for a minute
           if (world_transition_busy()) break;
-          if (h->timer <= 0 || !cal_is_night()) {
+          if (h->timer <= 0 || !sleep_due()) {
             if (world_change_area(GQ_AREA_HOME, SP_BED, 1)) h->phase = 4;
           }
           break;
         default:  // 4: back in the bedroom
           if (world_transition_busy()) break;
           h->pose = POSE_BED; h->emote = I_ZZZ; h->ex = h->ey = -1;
-          if (!cal_is_night()) {
-            h->pose = POSE_NORMAL; h->emote = I_NONE;
-            gq_emit(GQ_EV_WOKE, 0, 0);
-            finish(h);
-          } else { h->timer = rnd_range(180000, 300000); h->phase = 2; }
+          if (!sleep_due()) wake_up(h);
+          else { h->timer = rnd_range(180000, 300000); h->phase = 2; }
           break;
       }
       break;
@@ -1137,6 +1171,20 @@ void hero_force_activity(int gq_act) {
   h->dir = DIR_DOWN;
   s_fight_area = 0xFF;
   begin(h, gq_act);
+}
+
+// gc_debug(GQ_DBG_FORCE_CHAT): a chat with villager npc (0 = anyone) from a clean state.
+void hero_force_chat(int npc) {
+  if (npc < 0 || npc > 8) return;
+  Actor* h = &A[A_HERO];
+  clear_talk();
+  h->visible = 1;
+  world_instant_area(GQ_AREA_VILLAGE, SP_ENTRY);
+  tidy(h);
+  h->dir = DIR_DOWN;
+  s_fight_area = 0xFF;
+  s_force_npc = (uint8_t)npc;
+  begin(h, GQ_ACT_CHAT);
 }
 
 // Plain-words state of the hero for the status band (at most 19 characters + NUL, upper case).

@@ -60,6 +60,11 @@ enum {
   GQ_Q_TILL_LEFT, GQ_Q_ERRANDS_TODAY, GQ_Q_ACH_COUNT, GQ_Q_SEEN_COUNT,
   GQ_Q_CARD,            // 0 none, 1..4 card on screen
   GQ_Q_ACTORS_VISIBLE,
+  GQ_Q_HERO_ABED,       // 1 while the hero lies in bed (sleep phases 2 and 4)
+  GQ_Q_LIVE_WX,         // live weather as stored by gc_set_live_weather: 0..6, or -1 (GC_WX_NONE)
+  GQ_Q_LIVE_TEMP,       // tenths of a degree Celsius as stored (clamped)
+  GQ_Q_LIVE_FLAGS,      // GC_WXF_*
+  GQ_Q_SLEEP_MODE,      // GC_OPT_SLEEP_MODE as stored
   GQ_Q_ITEM_BASE = 100, // + GQ_ITEM_*  -> count
   GQ_Q_TOOL_BASE = 130, // + GQ_TOOL_*  -> level
   GQ_Q_STAT_BASE = 140, // + GQ_STAT_*  -> value
@@ -68,7 +73,9 @@ enum {
 
 // ---- gc_debug commands (preview and tests; they go through the same clamps as normal play)
 enum { GQ_DBG_ADD_COINS, GQ_DBG_SET_DAY, GQ_DBG_SET_WEATHER, GQ_DBG_ADD_ITEM /*arg=item<<8|n*/,
-       GQ_DBG_START_QUEST, GQ_DBG_SHOW_CARD, GQ_DBG_FORCE_ACT, GQ_DBG_BUY_GOAL, GQ_DBG_NEXT_DAY };
+       GQ_DBG_START_QUEST, GQ_DBG_SHOW_CARD, GQ_DBG_FORCE_ACT, GQ_DBG_BUY_GOAL, GQ_DBG_NEXT_DAY,
+       GQ_DBG_FORCE_CHAT,   // arg = villager 1..8: start a chat with him now (0 = anyone)
+       GQ_DBG_TALK_TURNS }; // arg = 2..4: chats play a built-in numbered script of that many turns (0 = off); tests and preview
 
 // ---- hero presence (value of GQ_Q_HERO_PRESENCE)
 enum { GQ_PRES_NONE, GQ_PRES_SPRITE, GQ_PRES_DOOR, GQ_PRES_POSTCARD, GQ_PRES_CURTAIN };
@@ -168,6 +175,11 @@ typedef struct {
   uint32_t serial;        // bumped by gq_touch() on state changes (tests use it)
   uint8_t  presence;      // GQ_Q_HERO_PRESENCE
   uint8_t  net, clock_approx, card_period, night_quiet;
+  uint8_t  sleep_mode;     // GC_OPT_SLEEP_MODE
+  uint8_t  live_wx1;       // live weather: GQ_W_* + 1, 0 = none (so that zero-initialised means none)
+  uint8_t  live_flags;     // GC_WXF_*
+  int16_t  live_temp10;    // tenths of a degree Celsius
+  uint8_t  dbg_turns;      // GQ_DBG_TALK_TURNS
   int16_t  year; uint8_t month, mday, wday;
 } GqState;
 extern GqState G;
