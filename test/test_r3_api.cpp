@@ -205,17 +205,19 @@ static void test_chat_order() {
   }
 }
 
-// The stub engine: two turns, villager first then the hero; no solo lines.
+// The dialogue engine (chunk D1 replaced the R3-0C stub; test_talk.cpp has the detailed tests): 2 to 4 turns, solo lines.
 static void test_talk_stub() {
   sim_start(1);
   char buf[40];
   talk_init();
-  CHECK(talk_begin(GQ_NPC_MIRA) == 2);
-  CHECK(talk_turn(0, buf, 40) == 0 && buf[0]);
-  CHECK(talk_turn(1, buf, 40) == 1 && buf[0]);
-  CHECK(talk_turn(1, buf, 1) == 1 && buf[0] == 0);          // a tiny buffer is never overrun
+  int turns = talk_begin(GQ_NPC_MIRA);
+  CHECK(turns >= 2 && turns <= 4);
+  CHECK(talk_turn(0, buf, 40) >= 0 && buf[0]);
+  CHECK(talk_turn(1, buf, 40) >= 0 && buf[0]);
+  CHECK(talk_turn(1, buf, 1) >= 0 && buf[0] == 0);          // a tiny buffer is never overrun
   CHECK(talk_turn(0, buf, 0) == 0);
-  CHECK(talk_solo(TALK_SOLO_BED, buf, 40) == 0 && talk_solo(TALK_SOLO_WAKE, buf, 40) == 0 && talk_solo(TALK_SOLO_DID, buf, 40) == 0);
+  CHECK(talk_solo(TALK_SOLO_BED, buf, 40) == 1 && buf[0] && talk_solo(TALK_SOLO_WAKE, buf, 40) == 1 && buf[0]);
+  CHECK(talk_solo(TALK_SOLO_DID, buf, 40) == 0);           // nothing done yet
   talk_on_event(GQ_EV_CHOPPED, 0, 0);
   // normal play, no debug script: chats still finish and give friendship / TALKED
   sim_start(5, 12 * 60);

@@ -1,0 +1,113 @@
+# MIRA, the shopkeeper. Voice: brisk, counts everything, dry jokes about prices, never rude for long.
+# This is the MODEL FILE for the other writers (docs/DESIGN-R3.md 4.5): same counts, same care.
+#
+# Counts per villager: 20 scripts, 55 lines = 8 scripts of 2 turns, 9 of 3 turns, 3 of 4 turns; the hero opens at least 6.
+# Categories: 3 ANY, 2 TIME, 3 WX/TEMP (at least one TEMP), 2 SEASON, 1 FEST, 3 DID, 2 QUEST/CHAPTER,
+#             3 FRIEND (tier 1, 2, 3), 1 GOAL/EVENT.
+# Rules: upper case, font glyphs only, 2 lines of 19 characters at most (slots count at their longest), the hero
+# answers the line before it, no filler ("I SEE!", "TELL ME MORE!"), the hero's lines are 8 characters or more.
+# Run:  python3 tools/gen_talk.py --check content/talk/mira.txt
+
+# ---------------------------------------------------------------- ANY: personality (3)
+@ ANY
+N: THREE COINS GONE.|I BLAME THE CAT.
+H: MISO HAS NO|POCKETS, {N}!
+N: THEN SHE HIDES THEM|VERY WELL.
+
+@ ANY
+H: YOUR SHOP SMELLS|SO NICE, {N}!
+N: THE SMELL IS FREE.|CANDLES COST 4.
+
+@ ANY
+H: THE SIGN SAYS SALE.|WHAT'S ON SALE?
+N: EVERYTHING IS HALF|OFF TODAY'S PRICE.
+H: WHAT WAS THE PRICE|BEFORE TODAY?
+N: TRIPLE. NOW IT IS|A BARGAIN. HONEST.
+
+# ---------------------------------------------------------------- TIME (2)
+@ TIME MORNING
+N: FIRST CUSTOMER OF|THE DAY. LUCKY ME!
+H: I CAME FOR THE|GOOD MORNING, {N}!
+N: THAT IS FREE. NOW|BUY SOMETHING TOO.
+
+@ TIME LATE
+H: STILL OPEN AT THIS|HOUR? WOW, {N}.
+N: NIGHT PRICES ARE|DOUBLE. COME BACK.
+
+# ---------------------------------------------------------------- WEATHER AND TEMPERATURE (3)
+@ WX RAIN
+N: RAIN KEEPS THE|SHOPPERS HOME.
+H: THEN I AM YOUR|BEST CUSTOMER!
+N: MY ONLY ONE.|BUY SOMETHING.
+
+@ TEMP COLD
+H: {T} OUT THERE!|MY NOSE IS ICE.
+N: SCARVES, 9 COINS.|NOSES ARE FREE.
+
+@ TEMP HOT
+H: {T} TODAY. I AM|A PUDDLE OF HERO.
+N: COLD BERRY JUICE:|3 COINS A CUP.
+H: 3 COINS FOR JUICE?|THAT IS STEEP!
+N: THE SUN RAISED IT.|NOT MY FAULT.
+
+# ---------------------------------------------------------------- SEASON (2)
+@ SEASON SPRING
+N: SPRING SEEDS ARE|IN. 2 COINS A PACK.
+H: CAN I PLANT A SEED|AND GROW A SWORD?
+
+@ SEASON WINTER
+H: BRRR! YOUR SHOP IS|THE WARMEST PLACE.
+N: THE STOVE IS 1 COIN|AN HOUR. KIDDING.
+H: PHEW! FOR A SECOND|I WAS GOING TO PAY.
+
+# ---------------------------------------------------------------- FESTIVAL (1)
+@ FEST RUNNING
+N: FESTIVAL NIGHT! MY|BEST SALES OF YEAR.
+H: SHOULDN'T YOU BE|DANCING, {N}?
+N: DANCING IS FREE.|NO PROFIT IN THAT.
+
+# ---------------------------------------------------------------- WHAT THE HERO JUST DID (3)
+@ DID SOLD
+H: I SOLD EVERYTHING|IN MY BAG, {N}!
+N: I KNOW. I COUNTED|IT. FAIR PRICE.
+H: FAIR TO WHOM? I'D|LIKE A RECOUNT!
+
+@ DID BOUGHT
+N: A NEW TOOL! PAID|IN FULL. I CHECKED.
+H: IT'S SHINY. LOOK AT|ME, A PROPER HERO!
+
+@ DID ATE
+H: ODDA'S STEW WAS|AMAZING. SO WARM!
+N: TRAITOR. MY JERKY|WAS RIGHT HERE!
+
+# ---------------------------------------------------------------- QUEST AND CHAPTER (2)
+@ QUEST NONE
+N: NO ERRANDS TODAY?|I HAVE BOXES. LOTS.
+H: HEROES DON'T CARRY|BOXES, {N}.
+
+@ QUEST STORY
+N: I HEARD ABOUT THE|BELL. QUITE A JOB.
+H: SOMEONE HAS TO FIX|IT. MIGHT BE ME.
+N: WHEN IT RINGS, I'LL|SELL BELL KEYRINGS.
+
+# ---------------------------------------------------------------- FRIENDSHIP, one per tier (3)
+@ FRIEND 1
+N: YOU AGAIN! I HAVE|A DISCOUNT FOR YOU.
+H: A REAL DISCOUNT OR|A {N} DISCOUNT?
+
+@ FRIEND 2
+H: I TRUST YOUR MATH,|{N}. EVERY COIN.
+N: YOU'RE THE ONLY ONE|WHO NEVER RECOUNTS.
+H: I RECOUNT IN MY|HEAD. QUIETLY.
+
+@ FRIEND 3
+H: {N}, YOU SAVED MY|SNACK. THANK YOU!
+N: IT WAS BEHIND THE|TILL. ALMOST SOLD.
+H: ALMOST?! WHO WAS|GOING TO BUY IT?
+N: A CUSTOMER. THEN I|THOUGHT OF YOU.
+
+# ---------------------------------------------------------------- GOAL (1)
+@ GOAL TOOL
+N: YOU WANT {G}.|I SEE YOU COUNTING.
+H: EVERY COIN GETS ME|THERE. AFTER LUNCH.
+N: LUNCH IS THE ENEMY|OF SAVINGS.
