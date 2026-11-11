@@ -1,0 +1,107 @@
+# BRAM, the elder. Voice: slow, proverbs that do not quite work, bell lore, his knees know the weather, naps mid-sentence.
+# Running jokes: "LAD", "MY KNEES", grandfather's sayings, the bell older than the village (or not).
+# Counts: 20 scripts, 55 lines = 8 of 2 turns, 9 of 3, 3 of 4. See content/talk/mira.txt for the rules.
+
+# ---------------------------------------------------------------- ANY (3)
+@ ANY
+N: GRANDFATHER SAID:|SLOW SOUP IS GOOD.
+H: AND FAST SOUP?|I'M VERY HUNGRY.
+N: FAST SOUP IS A|BURNT TONGUE, LAD.
+
+@ ANY
+H: {N}, HOW OLD IS|THE BELL TOWER?
+N: OLDER THAN ME. OR|I'M OLDER. HMM.
+H: YOU DON'T KNOW?|IT'S YOUR TOWER!
+N: IT'S EVERYONE'S.|I JUST SIT NEAR IT.
+
+@ ANY
+N: ZZZ... WHERE WAS I?|OH. HELLO, LAD.
+H: YOU SLEPT STANDING|UP. IMPRESSIVE!
+N: SIXTY YEARS OF|PRACTICE, LAD.
+
+# ---------------------------------------------------------------- TIME (2)
+@ TIME MORNING
+N: THE ROOSTER IS OUR|NEW BELL. PROMPT!
+H: PROMPT? HE WOKE ME|AN HOUR TOO EARLY!
+
+@ TIME EVENING
+H: THE SKY IS ALL|ORANGE, {N}!
+N: RED SKY AT NIGHT,|KNEES AT REST.
+H: ISN'T IT SAILORS'|DELIGHT?
+N: SAILORS HAVE BOATS.|I HAVE KNEES.
+
+# ---------------------------------------------------------------- WEATHER AND TEMPERATURE (3)
+@ WX RAIN
+N: MY KNEES SAID RAIN|SINCE BREAKFAST.
+H: KEEP THEM! BETTER|THAN AN UMBRELLA.
+
+@ WX FOG
+H: I CAN'T SEE MY|SWORD IN THIS FOG!
+N: FOG IS A CLOUD THAT|SAT DOWN. JOIN IT.
+
+@ TEMP COLD
+H: {T}! MY EARS HAVE|GONE QUIET, {N}.
+N: COLD MAKES A MAN|HONEST. AND SLOWER.
+H: YOU'RE HONEST AND|SLOW ALL YEAR LONG!
+
+# ---------------------------------------------------------------- SEASON (2)
+@ SEASON AUTUMN
+N: I'VE WATCHED THIS|LEAF FALL ALL DAY.
+H: IT'S STILL UP!|GIVE IT A PUSH!
+
+@ SEASON SUMMER
+H: A LONG {S} DAY!|WHAT SHALL WE DO?
+N: I SIT IN THE SHADE.|IT IS A SKILL.
+H: WATCH ME BE STILL.|...DONE. NOW WHAT?
+
+# ---------------------------------------------------------------- FESTIVAL (1)
+@ FEST RUNNING
+N: I WOULD DANCE, LAD.|MY KNEES SAID NO.
+H: THEN I'LL DANCE FOR|BOTH OF US! WATCH!
+N: THAT WAS A TRIP.|BRAVO ANYWAY, LAD.
+
+# ---------------------------------------------------------------- WHAT THE HERO JUST DID (3)
+@ DID FOUGHT
+N: YOU HAVE SLIME ON|YOUR BOOT, LAD.
+H: A TROPHY! I BEAT|ITS OWNER, EASILY.
+N: IN MY DAY WE USED|A SPOON. NO LOSSES.
+
+@ DID FAINTED
+H: I FELL OVER, {N}.|ON PURPOSE. A PLAN.
+N: A FINE PLAN. I FALL|OVER THE SAME WAY.
+
+@ DID SLEPT
+H: I SLEPT LIKE A|LOG, {N}!
+N: AMATEUR. I SLEPT|THROUGH A FESTIVAL.
+
+# ---------------------------------------------------------------- QUEST AND CHAPTER (2)
+@ QUEST MINE
+N: ABOUT MY ERRAND?|TAKE YOUR TIME.
+H: I WALK FAST, {N}!|BLINK AND I'M BACK.
+
+@ CHAPTER 5
+N: THE BELL RANG AT MY|WEDDING, LAD.
+H: YOU WERE MARRIED?|WHAT WAS SHE LIKE?
+N: LOUD, CLEAR, RIGHT.|JUST LIKE THE BELL.
+H: THEN I'LL FIX IT.|FOR HER, AND YOU.
+
+# ---------------------------------------------------------------- FRIENDSHIP (3)
+@ FRIEND 1
+N: I REMEMBER YOU NOW.|YOU WERE SHORTER.
+H: I GREW LAST WEEK!|LOOK, NEW MUSCLES!
+
+@ FRIEND 2
+H: {N}, WHAT'S YOUR|BEST ADVICE?
+N: WEAR TWO SOCKS. THE|REST IS DETAILS.
+H: I'LL WEAR THREE.|TO BE SAFE.
+
+@ FRIEND 3
+N: WHEN I'M GONE, THE|BELL IS YOURS, LAD.
+H: DON'T SAY THAT!|YOU'LL OUTLIVE US!
+N: MY KNEES HAVE|OUTLIVED 3 DOCTORS.
+
+# ---------------------------------------------------------------- GOAL (1)
+@ GOAL TOOL
+H: I WANT {G}!|ANY ADVICE, {N}?
+N: A COIN A DAY BUYS|ANYTHING IN A YEAR.
+H: A YEAR?! MY STOMACH|WON'T WAIT SO LONG!
