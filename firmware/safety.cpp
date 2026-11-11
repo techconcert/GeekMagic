@@ -9,37 +9,76 @@
 #include <Updater.h>
 #include <WiFiUdp.h>
 #include <time.h>
+#include <stdarg.h>
+#include <stdlib.h>
 #include <user_interface.h>
 
 #include "st7789.h"
 // RECOVERY-CHANGE (0B): the WiFi ladder lives in netwatch (state machine in lib/gqsafe)
 #include "netwatch.h"
+// RECOVERY-CHANGE (chunk1): pure decision code (host-tested), persistence and the settings record
+#include "bootlogic.h"
+#include "upcheck.h"
+#include "gq_crc32.h"
+#include "settings.h"
+#include "persist.h"
 
 #include <coredecls.h>   // settimeofday_cb
+
+// RECOVERY-CHANGE (chunk1): approval switches (design 12.2). Both default OFF in platformio.ini.
+//   GQ_AUTO_RESTART  1 = WiFi, heap and maintenance restarts really restart; 0 = they are only logged (A2)
+//   GQ_STRICT_UPLOAD 1 = size, CRC and marker checks of an upload are enforced; 0 = computed and shown only (A4)
+#ifndef GQ_AUTO_RESTART
+#define GQ_AUTO_RESTART 0
+#endif
+#ifndef GQ_STRICT_UPLOAD
+#define GQ_STRICT_UPLOAD 0
+#endif
 
 namespace safety {
 
 // ------------------------------------------------------------ constants
 static const char AP_PASS[] = "GEEKQUEST";        // WPA2, 8+ chars; uppercase so it reads the same on the clock font
-static const uint8_t CRASHES_FOR_SAFE_MODE = 3;
-static const uint8_t CRASHES_FOR_NO_DISPLAY = 6;
 static const uint32_t STABLE_AFTER_MS = 60UL * 1000;
 static const uint32_t AP_GRACE_MS = 10UL * 60 * 1000;  // AP stays up 10 min after boot
 // RECOVERY-CHANGE (0B): STA_LOST_AP_MS removed; the 60 s rule now lives in netfsm.cpp
-// RECOVERY-CHANGE (0B): revision of the recovery layer (design 8.10 rule 6)
-static const uint32_t GQ_RECOVERY_REV = 1;
+// RECOVERY-CHANGE (chunk1): CRASHES_FOR_* moved to lib/gqsafe/src/bootlogic.h
+// RECOVERY-CHANGE (chunk1): revision 2 = chunk 1 (design 8.10 rule 6)
+static const uint32_t GQ_RECOVERY_REV = 2;
+// RECOVERY-CHANGE (chunk1): timers of the restart gates
+static const uint32_t SLOW_STABLE_MS = 6UL * 3600 * 1000;   // `slow` counter cleared after 6 h of uptime
+static const uint32_t AUTO_MIN_UPTIME_MS = 30UL * 60 * 1000;
+static const uint32_t HEAP_SAMPLE_MS = 10UL * 1000;
+static const uint32_t LOW_HEAP_PAGE = 6144;                 // below this `/` sends the tiny page
+static const uint32_t STOCK_SIZE = 488304;                  // SDPro_V1.0.6 stock image
+static const uint32_t STOCK_CRC32 = 0;                      // unknown until the user reports it (design 12.2 A6); 0 = size only
 
 // RTC user memory. Offset 0 is used by eboot to pass the OTA copy command,
 // so we stay well clear of it (offset is in 4-byte blocks).
 static const uint32_t RTC_OFFSET = 96;
 static const uint32_t RTC_MAGIC = 0x47514247;  // "GQBG"
-struct RtcState {
+struct RtcState {            // RECOVERY-CHANGE (chunk1): layout unchanged (blocks 96..100)
   uint32_t magic;
   uint32_t crashes;
   uint32_t planned;     // 1 = the last restart was ours (OTA, reboot button)
   uint32_t forceSafe;   // 1 = user asked for safe mode on next boot
   uint32_t stage;       // last boot stage reached (see safety::stage)
 };
+// RECOVERY-CHANGE (chunk1): second record, blocks 101..111 (44 bytes)
+static const uint32_t RTC2_OFFSET = 101;
+static const uint32_t RTC2_MAGIC = 0x47513242;  // "GQ2B"
+struct RtcState2 {
+  uint32_t magic2;
+  uint32_t slow;            // unplanned resets, cleared after 6 h of uptime
+  uint32_t restoredSave;    // the boot loaded a game save
+  uint32_t wifiRestarts;    // WiFi-caused restarts since the last good link
+  uint32_t everConnected;   // since power-on
+  uint32_t lastReason;      // four RestartReason bytes, newest in the low byte
+  uint32_t bootCount;
+  uint32_t spare0, spare1, spare2;
+  uint32_t crc;             // CRC32 of the ten words above
+};
+static_assert(sizeof(RtcState2) == 44, "RtcState2 must fit blocks 101..111");
 
 // ------------------------------------------------------------ state
 static ESP8266WebServer server(80);
@@ -59,34 +98,100 @@ static uint32_t s_crashes = 0;
 static uint32_t s_lastStage = 0;     // stage reached before the previous reset
 static bool s_timeSynced = false;
 static int s_depth = 40;
-static String s_tz = "<-03>3";   // default UTC-3; change on the status page (not saved yet)
+// RECOVERY-CHANGE (chunk1): time zone is a fixed buffer (validated by gqs_tz_valid)
+static char s_tz[GQS_TZ_MAX + 1] = "<-03>3";
+// RECOVERY-CHANGE (chunk1): restart machinery, health numbers, upload checks
+static RtcState2 s_r2;
+static bool s_cold = false;
+static bool s_quarantine = false;
+static bool s_slowCleared = false;
+static uint8_t s_pending = RR_NONE;
+static void (*s_beforeRestart)() = nullptr;
+static bool (*s_asleepFn)() = nullptr;
+static uint32_t s_loggedAuto[3];          // WiFi, heap, maintenance requests that were only logged this boot
+static HeapWatch s_hw;
+static uint32_t s_lastHeapSample = 0;
+static bool s_heapWarn = false, s_heapReq = false, s_maintReq = false;
+static uint32_t s_lastReq = 0;            // millis() of the last web request, 0 = never
+static uint16_t s_fps10 = 0;
+static uint32_t s_loopMax = 0;
+static uint32_t s_freeAtUpload = 0;
+static UpChk s_upc;
+static UpRule s_upRule;
+static int s_upVerdict = -1;              // last upload check result (UV_*), -1 = none yet
+static uint8_t s_bk[GQS_BACKUP_BYTES];    // backup upload buffer
+static uint16_t s_bkLen = 0;
+static bool s_bkOver = false, s_bkOk = false;
+
+// GQ_OTA_MARKER is the ONLY copy of the marker text in the firmware: check_bin.py requires it exactly once,
+// the upload check scans for it in every image, and the page JavaScript only builds it from two pieces.
+static const char GQ_OTA_MARKER[] __attribute__((used)) = "GQ-OTA-PAGE-v1";
 
 // ------------------------------------------------------------ boot guard
 static void rtcRead(RtcState& s) { ESP.rtcUserMemoryRead(RTC_OFFSET, (uint32_t*)&s, sizeof(s)); }
 static void rtcWrite(RtcState& s) { ESP.rtcUserMemoryWrite(RTC_OFFSET, (uint32_t*)&s, sizeof(s)); }
+// RECOVERY-CHANGE (chunk1): second record, always written through the RAM copy s_r2
+static uint32_t r2Crc(const RtcState2& r) { return gq_crc32((const uint8_t*)&r, sizeof(r) - 4); }
+static void r2Write() {
+  s_r2.magic2 = RTC2_MAGIC;
+  s_r2.crc = r2Crc(s_r2);
+  ESP.rtcUserMemoryWrite(RTC2_OFFSET, (uint32_t*)&s_r2, sizeof(s_r2));
+}
+static void r2PushReason(uint8_t why) {
+  s_r2.lastReason = (s_r2.lastReason << 8) | why;
+}
 
 static void bootGuard() {
   RtcState s;
   rtcRead(s);
   const rst_info* ri = ESP.getResetInfoPtr();
   uint32_t reason = ri ? ri->reason : REASON_DEFAULT_RST;
-  bool coldBoot = (s.magic != RTC_MAGIC) || reason == REASON_DEFAULT_RST || reason == REASON_EXT_SYS_RST;
-  bool forceSafe = (s.magic == RTC_MAGIC) && s.forceSafe == 1;
+  bool valid1 = (s.magic == RTC_MAGIC);
+  bool coldBoot = !valid1 || reason == REASON_DEFAULT_RST || reason == REASON_EXT_SYS_RST;
 
-  s_lastStage = (s.magic == RTC_MAGIC) ? s.stage : 0;
-  if (coldBoot) s.crashes = 0;
-  else if (s.planned == 1) s.crashes = 0;
-  else s.crashes++;
+  // RECOVERY-CHANGE (chunk1): second record; invalid or foreign content counts as zeros
+  RtcState2 r2;
+  ESP.rtcUserMemoryRead(RTC2_OFFSET, (uint32_t*)&r2, sizeof(r2));
+  bool valid2 = (r2.magic2 == RTC2_MAGIC) && (r2.crc == r2Crc(r2));
+  if (!valid2 || coldBoot) memset(&r2, 0, sizeof(r2));
+
+  s_lastStage = valid1 ? s.stage : 0;
+
+  // RECOVERY-CHANGE (chunk1): the counting rules live in bootlogic.cpp (host-tested)
+  bool wasPlanned = valid1 && s.planned == 1;
+  BootCounters c;
+  c.crashes = valid1 ? s.crashes : 0;
+  c.slow = r2.slow;
+  c.planned = valid1 ? s.planned : 0;
+  c.force_safe = valid1 ? s.forceSafe : 0;
+  c.restored_save = r2.restoredSave;
+  BootDecision d;
+  boot_decide(&c, coldBoot ? 1 : 0, &d);
 
   s.magic = RTC_MAGIC;
-  s.planned = 0;
-  s.forceSafe = 0;
+  s.crashes = c.crashes;
+  s.planned = c.planned;
+  s.forceSafe = c.force_safe;
   s.stage = 0;
   rtcWrite(s);
 
-  s_crashes = s.crashes;
-  s_safe = forceSafe || s.crashes >= CRASHES_FOR_SAFE_MODE;
-  s_noDisplay = s.crashes >= CRASHES_FOR_NO_DISPLAY;
+  r2.slow = c.slow;
+  r2.restoredSave = c.restored_save;
+  r2.bootCount++;
+  s_r2 = r2;
+  if (coldBoot) {
+    s_r2.lastReason = 0;
+    r2PushReason(RR_POWER);
+  } else if (!wasPlanned) {
+    r2PushReason(RR_CRASH);                      // the previous run ended without a planned restart
+  }
+  r2Write();
+  s_cold = coldBoot;
+
+  s_crashes = c.crashes;
+  s_safe = d.safe != 0;
+  s_noDisplay = d.no_display != 0;
+  s_quarantine = d.quarantine != 0;
 }
 
 static void markStable() {
@@ -106,15 +211,91 @@ void stage(uint8_t n) {
   rtcWrite(s);
 }
 
-void plannedRestart(bool intoSafeMode) {
+// RECOVERY-CHANGE (chunk1): one word only (the stage is the 5th word of RtcState)
+void tickMarker(uint8_t n) {
+  uint32_t w = n;
+  ESP.rtcUserMemoryWrite(RTC_OFFSET + 4, &w, sizeof(w));
+}
+
+// RECOVERY-CHANGE (chunk1): restart reasons. Boot-time unplanned resets are logged here too.
+const char* restartName(uint8_t reason) {
+  static const char* const N[] = {"none", "user", "update", "WiFi", "heap", "maintenance",
+                                  "safe mode", "factory reset", "crash", "power-on"};
+  return reason < sizeof(N) / sizeof(N[0]) ? N[reason] : "?";
+}
+
+static bool isAuto(uint8_t why) { return why == RR_WIFI || why == RR_HEAP || why == RR_MAINT; }
+
+static void doRestart(uint8_t why) {
+  if (s_beforeRestart) s_beforeRestart();      // persist::beforeRestart: RTC copy (flash only when due)
   RtcState s;
   rtcRead(s);
   s.magic = RTC_MAGIC;
   s.planned = 1;
-  s.forceSafe = intoSafeMode ? 1 : 0;
+  s.forceSafe = (why == RR_SAFEMODE) ? 1 : 0;
   rtcWrite(s);
-  delay(200);
+  r2PushReason(why);
+  if (why == RR_WIFI) s_r2.wifiRestarts++;
+  // A restart the user chose from safe mode, and a freshly installed image, get a clean slate for `slow`.
+  if (why == RR_UPDATE || (why == RR_USER && s_safe)) s_r2.slow = 0;
+  r2Write();
+  delay(300);                                  // let the browser receive the reply
   ESP.restart();
+}
+
+void requestRestart(RestartReason why) {
+  if (why == RR_NONE || why == RR_CRASH || why == RR_POWER) return;
+  if (isAuto(why) && !GQ_AUTO_RESTART) {       // A2 not approved: log only
+    uint8_t i = why == RR_WIFI ? 0 : (why == RR_HEAP ? 1 : 2);
+    s_loggedAuto[i]++;
+    Serial.print(F("safety: automatic restart not enabled in this build, would restart: "));
+    Serial.println(restartName(why));
+    return;
+  }
+  if (s_pending == RR_NONE || !isAuto(why)) s_pending = why;   // a user request wins over an automatic one
+}
+
+void onBeforeRestart(void (*fn)()) { s_beforeRestart = fn; }
+
+bool autoRestartAllowed() {
+  return millis() - s_bootMs >= AUTO_MIN_UPTIME_MS && !s_golden && !s_updating && !s_safe &&
+         WiFi.softAPgetStationNum() == 0;
+}
+
+static void processRestart() {
+  if (s_pending == RR_NONE) return;
+  if (isAuto(s_pending) && !autoRestartAllowed()) return;   // wait until it is allowed
+  uint8_t why = s_pending;
+  s_pending = RR_NONE;
+  doRestart(why);
+}
+
+void plannedRestart(bool intoSafeMode) {
+  doRestart(intoSafeMode ? RR_SAFEMODE : RR_USER);
+}
+
+bool saveQuarantined() { return s_quarantine; }
+void clearQuarantine() { s_quarantine = false; }
+void noteGameRestored() { s_r2.restoredSave = 1; r2Write(); }
+bool coldBoot() { return s_cold; }
+
+uint8_t wifiRestarts() { return s_r2.wifiRestarts > 255 ? 255 : (uint8_t)s_r2.wifiRestarts; }
+void noteLinkGood() { if (s_r2.wifiRestarts) { s_r2.wifiRestarts = 0; r2Write(); } }
+bool everConnected() { return s_r2.everConnected != 0; }
+void noteConnected() { if (!s_r2.everConnected) { s_r2.everConnected = 1; r2Write(); } }
+
+void setHealth(uint16_t fps10, uint32_t loopMaxMs) { s_fps10 = fps10; s_loopMax = loopMaxMs; }
+void setAsleepFn(bool (*fn)()) { s_asleepFn = fn; }
+void setDepth(int d) { s_depth = d < 0 ? 0 : (d > 100 ? 100 : d); }
+uint32_t msSinceRequest() { return s_lastReq ? millis() - s_lastReq : 0xFFFFFFFFu; }
+
+bool setTimeZone(const char* tz) {
+  if (!tz || !gqs_tz_valid(tz)) return false;
+  strncpy(s_tz, tz, sizeof(s_tz) - 1);
+  s_tz[sizeof(s_tz) - 1] = 0;
+  setenv("TZ", s_tz, 1);
+  tzset();
+  return true;
 }
 
 // ------------------------------------------------------------ WiFi
@@ -138,36 +319,45 @@ void stopAP() {
 // RECOVERY-CHANGE (0B): wifiPolicy() removed; netwatch::loop() replaces it
 
 // ------------------------------------------------------------ web pages
+// RECOVERY-CHANGE (chunk1): every page is sent in pieces straight from flash or from a 480-byte stack buffer
+// (chunked transfer, no String of the page is ever built), so a page needs no more heap than the connection itself.
 static const char PAGE_HEAD[] PROGMEM = R"HTML(<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>GeekQuest clock</title>
 <style>body{font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:16px;background:#14171c;color:#e8eaee}
-a,button{color:#14171c;background:#e89a3c;border:0;border-radius:6px;padding:8px 14px;font:inherit;text-decoration:none;display:inline-block;cursor:pointer}
+a,button{color:#14171c;background:#e89a3c;border:0;border-radius:6px;padding:8px 14px;font:inherit;text-decoration:none;display:inline-block;cursor:pointer;margin:2px 0}
 .box{background:#1d2128;border:1px solid #2e333c;border-radius:8px;padding:14px;margin:12px 0}
 td{padding:2px 10px 2px 0}.warn{color:#ffb4a8}.ok{color:#7fdc9b}input{font:inherit;padding:6px;width:100%;box-sizing:border-box;margin:4px 0}
-progress{width:100%;height:18px}</style></head><body>)HTML";
+input[type=checkbox],input[type=file]{width:auto}progress{width:100%;height:18px}small{color:#9aa1ad}form{display:inline}</style></head><body>)HTML";
 static const char PAGE_TAIL[] PROGMEM = "</body></html>";
 
-// The update page. GQ-OTA-PAGE-v1 is a marker the CI check looks for in every .bin.
-static const char PAGE_UPDATE[] PROGMEM = R"HTML(<h2>Firmware update</h2><!-- GQ-OTA-PAGE-v1 -->
+// The update page, in pieces so the optional "install anyway" box can be compiled in.
+static const char PAGE_UPDATE_A[] PROGMEM = R"HTML(<h2>Firmware update</h2>
 <div class="box"><p>Choose a firmware <b>.bin</b>. This page accepts GeekQuest builds and the original
 SDPro stock firmware. The image is checked before anything is replaced; a failed upload leaves the
-current firmware running.</p>
-<input id="f" type="file" accept=".bin"><p id="chk"></p>
-<button id="go" disabled>Upload and install</button><p><progress id="p" max="100" value="0" hidden></progress></p>
+current firmware running. Keep the clock powered for 60 seconds after it says Installed.</p>
+<input id="f" type="file" accept=".bin"><p id="chk"></p><p id="crc"></p>)HTML";
+#if GQ_STRICT_UPLOAD
+static const char PAGE_UPDATE_FORCE[] PROGMEM = R"HTML(<p><label><input type="checkbox" id="force"> Install anyway (skip the check that the file contains the GeekQuest update page)</label></p>)HTML";
+#endif
+static const char PAGE_UPDATE_B[] PROGMEM = R"HTML(<button id="go" disabled>Upload and install</button><p><progress id="p" max="100" value="0" hidden></progress></p>
 <p id="msg"></p></div><p><a href="/">Back</a></p>
 <script>
-const f=document.getElementById('f'),go=document.getElementById('go'),chk=document.getElementById('chk'),msg=document.getElementById('msg'),p=document.getElementById('p');
-let free=0;fetch('/info').then(r=>r.json()).then(j=>{free=j.free_ota_bytes});
-f.onchange=()=>{go.disabled=true;const x=f.files[0];if(!x)return;
- const rd=new FileReader();rd.onload=()=>{const b=new Uint8Array(rd.result);let e=[];
+const f=document.getElementById('f'),go=document.getElementById('go'),chk=document.getElementById('chk'),cr=document.getElementById('crc'),msg=document.getElementById('msg'),p=document.getElementById('p');
+let free=0,crc='',n=0;fetch('/info').then(r=>r.json()).then(j=>{free=j.free_ota_bytes});
+function crc32(b){let c=-1;for(let i=0;i<b.length;i++){c^=b[i];for(let k=0;k<8;k++)c=(c>>>1)^(0xEDB88320&-(c&1))}return((c^-1)>>>0).toString(16).padStart(8,'0')}
+function has(b){const m=Array.from('GQ-OTA-'+'PAGE-v1',c=>c.charCodeAt(0));o:for(let i=0;i+m.length<=b.length;i++){if(b[i]!==m[0])continue;for(let j=1;j<m.length;j++)if(b[i+j]!==m[j])continue o;return true}return false}
+f.onchange=()=>{go.disabled=true;cr.textContent='';const x=f.files[0];if(!x)return;
+ const rd=new FileReader();rd.onload=()=>{const b=new Uint8Array(rd.result);let e=[],w=[];n=b.length;crc=crc32(b);
   if(b[0]!==0xE9)e.push('not an ESP8266 firmware image (first byte is not 0xE9)');
   else if((b[3]>>4)!==4)e.push('image is not built for 4MB flash');
   if(free&&x.size>free)e.push('too big: '+x.size+' bytes, only '+free+' free');
+  if(!has(b)&&x.size!==488304)w.push('this file does not contain the GeekQuest update page; after installing it you could not update from this page again');
+  cr.textContent='CRC32 '+crc+', '+x.size+' bytes';
   if(e.length){chk.className='warn';chk.textContent='Cannot install: '+e.join('; ')}
-  else{chk.className='ok';chk.textContent='Looks good: '+x.name+', '+x.size+' bytes.';go.disabled=false}};
- rd.readAsArrayBuffer(x.slice(0,16))};
+  else{chk.className=w.length?'warn':'ok';chk.textContent=(w.length?'Warning: '+w.join('; ')+'. ':'Looks good: ')+x.name+', '+x.size+' bytes.';go.disabled=false}};
+ rd.readAsArrayBuffer(x)};
 go.onclick=()=>{const x=f.files[0];if(!x)return;go.disabled=true;f.disabled=true;p.hidden=false;msg.textContent='Uploading... do not unplug the clock.';
- const fd=new FormData();fd.append('firmware',x,x.name);const q=new XMLHttpRequest();q.open('POST','/update');
+ const fc=document.getElementById('force'),fd=new FormData();fd.append('firmware',x,x.name);const q=new XMLHttpRequest();q.open('POST','/update?crc='+crc+'&size='+n+'&force='+(fc&&fc.checked?1:0));
  q.upload.onprogress=e=>{if(e.lengthComputable)p.value=Math.round(e.loaded*100/e.total)};
  q.onload=()=>{if(q.status==200){msg.className='ok';msg.textContent=q.responseText+' The clock restarts in a few seconds; this page will reload.';setTimeout(()=>location.href='/',15000)}
   else{msg.className='warn';msg.textContent='Update failed: '+q.responseText+'. The current firmware is still installed.';go.disabled=false;f.disabled=false}};
@@ -175,17 +365,61 @@ go.onclick=()=>{const x=f.files[0];if(!x)return;go.disabled=true;f.disabled=true
  q.send(fd)};
 </script>)HTML";
 
-static String htmlEscape(const String& s) {
-  String o;
-  o.reserve(s.length() + 8);
-  for (char c : s) {
-    if (c == '<') o += F("&lt;");
-    else if (c == '>') o += F("&gt;");
-    else if (c == '&') o += F("&amp;");
-    else if (c == '"') o += F("&quot;");
-    else o += c;
+static const char PAGE_WIFI[] PROGMEM = R"HTML(<h2>WiFi setup</h2><div class='box'><form method='post' action='/wifi'>
+Network name<input name='ssid' maxlength='32'>Password<input name='pass' type='password' maxlength='64'>
+<button>Save and connect</button></form><p><small>Saved in the ESP8266's own WiFi settings area, not in the stock firmware's files.</small></p></div><p><a href='/'>Back</a></p>)HTML";
+
+static const char PAGE_LOWMEM[] PROGMEM = "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><title>GeekQuest</title>"
+    "<body style='font-family:sans-serif;padding:16px'><h3>GeekQuest clock: low memory</h3><p>Firmware " GQ_VERSION
+    ". The full status page is skipped to save memory.</p><p><a href='/update'>Update firmware</a></p>"
+    "<form method='post' action='/reboot'><button>Restart</button></form></body>";
+
+// Small buffered writer for chunked pages.
+struct Out {
+  char b[480];
+  uint16_t n;
+  Out() : n(0) {}
+  void flush() { if (n) { server.sendContent_P(b, n); n = 0; } }
+  void put(const char* t, size_t l) {
+    if (l > sizeof(b) - n) { flush(); if (l > sizeof(b)) { server.sendContent_P(t, l); return; } }
+    memcpy(b + n, t, l);
+    n += (uint16_t)l;
   }
-  return o;
+  void s(const char* t) { put(t, strlen(t)); }                               // RAM string, raw
+  void p(PGM_P t) { size_t l = strlen_P(t); if (l > sizeof(b) - n) { flush(); server.sendContent_P(t, l); } else { memcpy_P(b + n, t, l); n += (uint16_t)l; } }
+  void esc(const char* t) {                                                  // RAM string, HTML escaped
+    for (; *t; t++) {
+      const char* r = nullptr;
+      if (*t == '<') r = "&lt;"; else if (*t == '>') r = "&gt;"; else if (*t == '&') r = "&amp;"; else if (*t == '\'') r = "&#39;"; else if (*t == '"') r = "&quot;";
+      if (r) put(r, strlen(r)); else put(t, 1);
+    }
+  }
+  void f(PGM_P fmt, ...) {                                                   // printf with a flash format
+    char t[140];
+    va_list ap;
+    va_start(ap, fmt);
+    int l = vsnprintf_P(t, sizeof(t), fmt, ap);
+    va_end(ap);
+    if (l > 0) put(t, (size_t)(l < (int)sizeof(t) ? l : (int)sizeof(t) - 1));
+  }
+};
+
+static void touch() {
+  netwatch::noteHttp();
+  uint32_t n = millis();
+  s_lastReq = n ? n : 1;
+}
+
+static void beginChunked(int code, const __FlashStringHelper* type) {
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(code, type, "");
+}
+static void endChunked() { server.sendContent(""); }
+static void beginPage() { beginChunked(200, F("text/html; charset=utf-8")); server.sendContent_P(PAGE_HEAD); }
+static void endPage() { server.sendContent_P(PAGE_TAIL); endChunked(); }
+static void redirectHome() {
+  server.sendHeader(F("Location"), F("/"));
+  server.send(303);
 }
 
 static uint32_t freeOtaBytes() {
@@ -193,99 +427,193 @@ static uint32_t freeOtaBytes() {
   return f > 0x1000 ? (f - 0x1000) & 0xFFFFF000 : 0;
 }
 
-static void sendPage(const String& body) {
-  String s;
-  s.reserve(body.length() + 1200);
-  s += FPSTR(PAGE_HEAD);
-  s += body;
-  s += FPSTR(PAGE_TAIL);
-  server.send(200, F("text/html; charset=utf-8"), s);
+static const char* verdictText(int v) {
+  switch (v) {
+    case UV_OK: return "ok";
+    case UV_SIZE: return "fewer bytes arrived than the page sent: the upload was cut short. Try again";
+    case UV_CRC: return "the file arrived damaged (CRC32 does not match). Nothing was installed. Try again";
+    case UV_NO_MARKER: return "this image does not contain the GeekQuest update page, so you could not update from the page afterwards. If it is the original SDPro firmware or you are sure, tick Install anyway and retry";
+    default: return "?";
+  }
+}
+
+static void getBssid(char* out, size_t n) {
+  const uint8_t* b = WiFi.BSSID();
+  if (!b) { snprintf(out, n, "-"); return; }
+  snprintf(out, n, "%02X:%02X:%02X:%02X:%02X:%02X", b[0], b[1], b[2], b[3], b[4], b[5]);
+}
+
+static void sendReasons(Out& o, bool json) {
+  uint32_t r = s_r2.lastReason;
+  for (int i = 0; i < 4; i++) {
+    uint8_t why = (uint8_t)(r >> (8 * i));
+    if (json) o.f(PSTR("%s\"%s\""), i ? "," : "", restartName(why));
+    else if (why) o.f(PSTR("%s%s"), i ? ", " : "", restartName(why));
+  }
 }
 
 static void handleRoot() {
-  netwatch::noteHttp();   // RECOVERY-CHANGE (0B)
-  String b;
-  b.reserve(1800);
-  b += F("<h2>GeekQuest clock</h2>");
-  if (s_safe) b += F("<div class='box warn'><b>Safe mode.</b> The game is not running (it crashed repeatedly or safe mode was requested). Install a fixed firmware below, or reboot normally.</div>");
-  b += F("<div class='box'><table>");
-  b += F("<tr><td>Firmware</td><td>"); b += F(GQ_VERSION); b += F("</td></tr>");
-  b += F("<tr><td>WiFi</td><td>");
-  if (WiFi.status() == WL_CONNECTED) { b += htmlEscape(WiFi.SSID()); b += F(" ("); b += WiFi.localIP().toString(); b += F(")"); }
-  else b += F("not connected");
-  // RECOVERY-CHANGE (0B): WiFi ladder diagnostics
-  b += F("</td></tr><tr><td>WiFi ladder</td><td>stage "); b += netwatch::stage();
-  b += F(", attempts "); b += netwatch::attempts();
-  b += F(", down "); b += netwatch::downSeconds();
-  b += F(" s, last reason "); b += netwatch::lastReason();
-  b += F("</td></tr><tr><td>Rescue hotspot</td><td>");
-  if (s_ap) { b += s_apName; b += F(" (on, password "); b += AP_PASS; b += F(")"); }
-  else b += F("off");
-  b += F("</td></tr><tr><td>Free heap</td><td>"); b += ESP.getFreeHeap();
-  b += F(" bytes</td></tr><tr><td>Firmware size</td><td>"); b += ESP.getSketchSize();
-  b += F(" bytes</td></tr><tr><td>Room for update</td><td>"); b += freeOtaBytes();
-  b += F(" bytes</td></tr><tr><td>Last reset</td><td>"); b += htmlEscape(ESP.getResetReason());
-  b += F("</td></tr><tr><td>Crash counter</td><td>"); b += s_crashes;
-  b += F("</td></tr>");
+  touch();
+  if (ESP.getFreeHeap() < LOW_HEAP_PAGE) { server.send_P(200, PSTR("text/html"), PAGE_LOWMEM); return; }
+  beginPage();
+  Out o;
+  char tmp[64];
+  o.p(PSTR("<h2>GeekQuest clock</h2>"));
+  if (s_safe) o.p(PSTR("<div class='box warn'><b>Safe mode.</b> The game is not running (it crashed repeatedly or safe mode was requested). Install a fixed firmware below, or restart normally.</div>"));
+  if (s_quarantine)
+    o.p(PSTR("<div class='box warn'><b>Saved game quarantined.</b> The clock crashed repeatedly after loading the saved game, so this boot started a fresh game and left the saved one untouched. "
+             "<form method='post' action='/quarantine'><button name='a' value='retry'>Try the saved game again</button> "
+             "<button name='a' value='discard'>Discard the saved game</button></form></div>"));
+  if (s_heapWarn) o.p(PSTR("<div class='box warn'>Memory is low (under 12 KB free for a minute). Restarting from this page clears it.</div>"));
+
+  // ---- status
+  o.p(PSTR("<div class='box'><table>"));
+  o.f(PSTR("<tr><td>Firmware</td><td>%s</td></tr><tr><td>WiFi</td><td>"), GQ_VERSION);
+  if (WiFi.status() == WL_CONNECTED) { o.esc(WiFi.SSID().c_str()); o.f(PSTR(" (%s)"), WiFi.localIP().toString().c_str()); }
+  else o.p(PSTR("not connected"));
+  o.p(PSTR("</td></tr><tr><td>Rescue hotspot</td><td>"));
+  if (s_ap) o.f(PSTR("%s (on, password %s)"), s_apName, AP_PASS);
+  else o.p(PSTR("off"));
+  o.f(PSTR("</td></tr><tr><td>Firmware size</td><td>%u bytes</td></tr><tr><td>Room for update</td><td>%u bytes</td></tr>"),
+      (unsigned)ESP.getSketchSize(), (unsigned)freeOtaBytes());
+  o.f(PSTR("<tr><td>Last reset</td><td>%s</td></tr><tr><td>Crash counter</td><td>%u fast, %u slow</td></tr>"),
+      ESP.getResetReason().c_str(), (unsigned)s_crashes, (unsigned)s_r2.slow);
+  o.p(PSTR("<tr><td>Last restarts</td><td>"));
+  sendReasons(o, false);
+  o.f(PSTR("</td></tr><tr><td>Automatic restarts</td><td>%s"), GQ_AUTO_RESTART ? "on" : "off in this build");
+  if (!GQ_AUTO_RESTART && (s_loggedAuto[0] | s_loggedAuto[1] | s_loggedAuto[2]))
+    o.f(PSTR(" (would have restarted: WiFi %u, heap %u, weekly %u)"), (unsigned)s_loggedAuto[0], (unsigned)s_loggedAuto[1], (unsigned)s_loggedAuto[2]);
+  o.f(PSTR("</td></tr><tr><td>Upload checks</td><td>%s"), GQ_STRICT_UPLOAD ? "enforced" : "computed, not enforced");
+  if (s_upVerdict > UV_OK) o.f(PSTR("; last upload %s"), GQ_STRICT_UPLOAD ? "refused" : "would have been refused");
+  o.p(PSTR("</td></tr>"));
   const rst_info* ri = ESP.getResetInfoPtr();
   if (ri && ri->reason == REASON_EXCEPTION_RST) {
-    char hx[120];
-    snprintf(hx, sizeof(hx), "cause %u, epc1 0x%08x, excvaddr 0x%08x, depc 0x%08x",
-             (unsigned)ri->exccause, (unsigned)ri->epc1, (unsigned)ri->excvaddr, (unsigned)ri->depc);
-    b += F("<tr><td>Crash details</td><td>"); b += hx; b += F("</td></tr>");
-    b += F("<tr><td>Boot stage at crash</td><td>"); b += s_lastStage; b += F("</td></tr>");
+    o.f(PSTR("<tr><td>Crash details</td><td>cause %u, epc1 0x%08x, excvaddr 0x%08x, depc 0x%08x</td></tr>"),
+        (unsigned)ri->exccause, (unsigned)ri->epc1, (unsigned)ri->excvaddr, (unsigned)ri->depc);
+    o.f(PSTR("<tr><td>Boot stage at crash</td><td>%u</td></tr>"), (unsigned)s_lastStage);
   }
-  b += F("</table></div>");
-  b += F("<p><a href='/update'>Update firmware</a> <a href='/wifi'>WiFi setup</a></p>");
-  b += F("<div class='box'><form method='post' action='/settings'>Brightness (0-100)<input name='bl' value='");
-  b += lcd::brightness();
-  b += F("'>Colour depth (0-100, higher = deeper colours, fixes washed-out look)<input name='depth' value='");
-  b += s_depth;
-  b += F("'>Time zone (POSIX TZ, e.g. &lt;-03&gt;3 for UTC-3)<input name='tz' value='");
-  b += htmlEscape(s_tz);
-  b += F("'><button>Apply</button> <small>Not saved across restarts yet.</small></form></div>");
-  b += F("<div class='box'>Display test (only if colours look wrong; not saved):<br><br>"
-         "<a href='/display?madctl=0'>RGB order</a> <a href='/display?madctl=8'>BGR order</a> "
-         "<a href='/display?inv=1'>Inversion on</a> <a href='/display?inv=0'>Inversion off</a></div>");
-  b += F("<form method='post' action='/reboot' style='display:inline'><button>Restart</button></form> "
-         "<form method='post' action='/safemode' style='display:inline'><button>Restart in safe mode</button></form>");
-  sendPage(b);
+  o.p(PSTR("</table></div>"));
+
+  // ---- network (design 7.4)
+  o.f(PSTR("<div class='box'><b>Network</b><table><tr><td>Ladder</td><td>stage %u, attempts %u, down %u s, last reason %u</td></tr>"),
+      (unsigned)netwatch::stage(), (unsigned)netwatch::attempts(), (unsigned)netwatch::downSeconds(), (unsigned)netwatch::lastReason());
+  if (WiFi.status() == WL_CONNECTED) {
+    getBssid(tmp, sizeof(tmp));
+    o.f(PSTR("<tr><td>Signal</td><td>%d dBm, channel %d, BSSID %s</td></tr>"), (int)WiFi.RSSI(), (int)WiFi.channel(), tmp);
+  }
+  uint32_t ntp = netwatch::ntpAgeSeconds();
+  if (ntp == 0xFFFFFFFFu) o.p(PSTR("<tr><td>Last time sync</td><td>never</td></tr>"));
+  else o.f(PSTR("<tr><td>Last time sync</td><td>%u s ago</td></tr>"), (unsigned)ntp);
+  o.f(PSTR("<tr><td>Reconnects</td><td>%u since power-on, WiFi restarts %u</td></tr></table><small>Events:<br>"),
+      (unsigned)netwatch::reconnects(), (unsigned)s_r2.wifiRestarts);
+  for (uint8_t i = 0; i < 8 && netwatch::eventLine(i, tmp, sizeof(tmp)); i++) { o.s(tmp); o.p(PSTR("<br>")); }
+  o.p(PSTR("</small></div>"));
+
+  // ---- health
+  uint32_t up = (millis() - s_bootMs) / 1000;
+  o.f(PSTR("<div class='box'><b>Health</b><table><tr><td>Free heap</td><td>%u bytes (lowest %u, largest block %u)</td></tr>"),
+      (unsigned)ESP.getFreeHeap(), (unsigned)(s_hw.min_free == 0xFFFFFFFFu ? ESP.getFreeHeap() : s_hw.min_free), (unsigned)ESP.getMaxFreeBlockSize());
+  o.f(PSTR("<tr><td>Uptime</td><td>%ud %02uh %02um</td></tr><tr><td>FPS</td><td>%u.%u</td></tr><tr><td>Longest loop</td><td>%u ms</td></tr></table></div>"),
+      (unsigned)(up / 86400), (unsigned)(up / 3600 % 24), (unsigned)(up / 60 % 60), (unsigned)(s_fps10 / 10), (unsigned)(s_fps10 % 10), (unsigned)s_loopMax);
+
+  // ---- game and saving (design 8.8, 9)
+  if (!s_safe) {
+    char g[96];
+    persist::gameSummary(g, sizeof(g));
+    o.p(PSTR("<div class='box'><b>Game</b><br>")); o.esc(g); o.p(PSTR("<br><small>Saved: "));
+  } else {
+    o.p(PSTR("<div class='box'><b>Saving</b><br><small>"));
+  }
+  o.esc(persist::statusText());
+  o.p(PSTR("</small><br>"
+           "<form method='post' action='/save'><button>Save now</button></form> <a href='/backup'>Download backup</a>"
+           "<form method='post' action='/backup' enctype='multipart/form-data'><br>Restore backup (.gqs file): <input type='file' name='b' accept='.gqs'><button>Restore</button></form><br>"
+           "<form method='post' action='/factory' onsubmit=\"return confirm('Start the game again from day 1? Settings are kept.')\"><button>Factory reset game</button></form> "
+           "<form method='post' action='/reset_settings' onsubmit=\"return confirm('Put brightness, colour depth, time zone and card period back to defaults?')\"><button>Reset settings</button></form>"));
+#if GQ_FLASH_SAVE
+  {
+    char pt[200];
+    persist::probeText(pt, sizeof(pt));
+    o.p(PSTR("<br><small>")); o.esc(pt);
+    o.p(PSTR("</small><br><form method='post' action='/flash_on'><button>Enable saving to flash</button></form> "
+             "<form method='post' action='/flash_off' onsubmit=\"return confirm('Erase the save sector?')\"><button>Disable and erase</button></form>"));
+  }
+#endif
+  o.p(PSTR("</div><p><a href='/update'>Update firmware</a> <a href='/wifi'>WiFi setup</a></p>"));
+
+  // ---- settings
+  const GqSettings& st = persist::settings();
+  o.f(PSTR("<div class='box'><form method='post' action='/settings' style='display:block'><input type='hidden' name='f' value='1'>Brightness (0-100)<input name='bl' value='%d'>"
+           "Colour depth (0-100, higher = deeper colours, fixes washed-out look)<input name='depth' value='%d'>Time zone (POSIX TZ, e.g. &lt;-03&gt;3 for UTC-3)<input name='tz' value='"),
+      lcd::brightness(), s_depth);
+  o.esc(s_tz);
+  o.f(PSTR("'>Info card every (minutes, 0 = off)<input name='card' value='%u'>"
+           "<label><input type='checkbox' name='maint' value='1'%s> Weekly maintenance restart (about 04:00)</label><br>"
+           "<label><input type='checkbox' name='night' value='1'%s> Quiet at night</label><br>"
+           "<button>Apply</button> <small>Saved to the clock's memory (survives restarts and updates).</small></form></div>"),
+      (unsigned)st.card_period, (st.flags & GQS_FLAG_MAINT) ? " checked" : "", (st.flags & GQS_FLAG_NIGHT) ? " checked" : "");
+  o.p(PSTR("<div class='box'>Display test (only if colours look wrong; not saved):<br><br>"
+           "<a href='/display?madctl=0'>RGB order</a> <a href='/display?madctl=8'>BGR order</a> "
+           "<a href='/display?inv=1'>Inversion on</a> <a href='/display?inv=0'>Inversion off</a></div>"
+           "<form method='post' action='/reboot'><button>Restart</button></form> "
+           "<form method='post' action='/safemode'><button>Restart in safe mode</button></form>"));
+  o.f(PSTR("<p><small>GQ-RECOVERY-REV %u</small></p>"), (unsigned)GQ_RECOVERY_REV);
+  o.flush();
+  endPage();
 }
 
 static void handleInfo() {
-  netwatch::noteHttp();   // RECOVERY-CHANGE (0B)
-  String j;
-  j.reserve(400);
-  j += F("{\"version\":\""); j += F(GQ_VERSION);
-  j += F("\",\"safe_mode\":"); j += s_safe ? F("true") : F("false");
-  j += F(",\"crashes\":"); j += s_crashes;
+  touch();
+  beginChunked(200, F("application/json"));
+  Out o;
+  char tmp[64];
+  o.f(PSTR("{\"version\":\"%s\",\"safe_mode\":%s,\"crashes\":%u,\"slow\":%u"), GQ_VERSION, s_safe ? "true" : "false", (unsigned)s_crashes, (unsigned)s_r2.slow);
   {
     const rst_info* ri = ESP.getResetInfoPtr();
-    if (ri && ri->reason == REASON_EXCEPTION_RST) {
-      char hx[120];
-      snprintf(hx, sizeof(hx), ",\"exccause\":%u,\"epc1\":%u,\"excvaddr\":%u,\"stage\":%u",
-               (unsigned)ri->exccause, (unsigned)ri->epc1, (unsigned)ri->excvaddr, (unsigned)s_lastStage);
-      j += hx;
-    }
+    if (ri && ri->reason == REASON_EXCEPTION_RST)
+      o.f(PSTR(",\"exccause\":%u,\"epc1\":%u,\"excvaddr\":%u,\"stage\":%u"),
+          (unsigned)ri->exccause, (unsigned)ri->epc1, (unsigned)ri->excvaddr, (unsigned)s_lastStage);
   }
-  j += F(",\"heap\":"); j += ESP.getFreeHeap();
-  j += F(",\"sketch_bytes\":"); j += ESP.getSketchSize();
-  j += F(",\"free_ota_bytes\":"); j += freeOtaBytes();
-  j += F(",\"flash_real\":"); j += ESP.getFlashChipRealSize();
-  j += F(",\"sta_ip\":\""); j += WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : String();
-  j += F("\",\"ap\":"); j += s_ap ? F("true") : F("false");
-  j += F(",\"uptime_s\":"); j += millis() / 1000;
+  o.f(PSTR(",\"heap\":%u,\"heap_min\":%u,\"heap_block\":%u,\"sketch_bytes\":%u,\"free_ota_bytes\":%u,\"flash_real\":%u"),
+      (unsigned)ESP.getFreeHeap(), (unsigned)(s_hw.min_free == 0xFFFFFFFFu ? ESP.getFreeHeap() : s_hw.min_free),
+      (unsigned)ESP.getMaxFreeBlockSize(), (unsigned)ESP.getSketchSize(), (unsigned)freeOtaBytes(), (unsigned)ESP.getFlashChipRealSize());
+  o.f(PSTR(",\"sta_ip\":\"%s\",\"ap\":%s,\"uptime_s\":%u"),
+      WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString().c_str() : "", s_ap ? "true" : "false", (unsigned)(millis() / 1000));
   // RECOVERY-CHANGE (0B): WiFi ladder diagnostics and recovery revision
-  j += F(",\"net_stage\":"); j += netwatch::stage();
-  j += F(",\"net_attempts\":"); j += netwatch::attempts();
-  j += F(",\"net_down_s\":"); j += netwatch::downSeconds();
-  j += F(",\"net_reason\":"); j += netwatch::lastReason();
-  j += F(",\"recovery_rev\":"); j += GQ_RECOVERY_REV;
-  j += F("}");
-  server.send(200, F("application/json"), j);
+  o.f(PSTR(",\"net_stage\":%u,\"net_attempts\":%u,\"net_down_s\":%u,\"net_reason\":%u,\"recovery_rev\":%u"),
+      (unsigned)netwatch::stage(), (unsigned)netwatch::attempts(), (unsigned)netwatch::downSeconds(), (unsigned)netwatch::lastReason(), (unsigned)GQ_RECOVERY_REV);
+  // RECOVERY-CHANGE (chunk1): the same numbers as the status page, on one line
+  getBssid(tmp, sizeof(tmp));
+  o.f(PSTR(",\"rssi\":%d,\"channel\":%d,\"bssid\":\"%s\",\"ntp_age_s\":%d,\"reconnects\":%u,\"wifi_restarts\":%u"),
+      WiFi.status() == WL_CONNECTED ? (int)WiFi.RSSI() : 0, (int)WiFi.channel(), tmp,
+      netwatch::ntpAgeSeconds() == 0xFFFFFFFFu ? -1 : (int)netwatch::ntpAgeSeconds(), (unsigned)netwatch::reconnects(), (unsigned)s_r2.wifiRestarts);
+  o.f(PSTR(",\"fps\":%u.%u,\"loop_max_ms\":%u,\"quarantined\":%s,\"heap_warn\":%s,\"boots\":%u,\"restarts\":["),
+      (unsigned)(s_fps10 / 10), (unsigned)(s_fps10 % 10), (unsigned)s_loopMax, s_quarantine ? "true" : "false", s_heapWarn ? "true" : "false", (unsigned)s_r2.bootCount);
+  sendReasons(o, true);
+  o.f(PSTR("],\"auto_restart\":%d,\"strict_upload\":%d,\"flash_save\":%d,\"save\":\""), (int)GQ_AUTO_RESTART, (int)GQ_STRICT_UPLOAD, (int)GQ_FLASH_SAVE);
+  o.esc(persist::statusText());
+  o.p(PSTR("\",\"game\":\""));
+  if (!s_safe) { char g[96]; persist::gameSummary(g, sizeof(g)); o.esc(g); }
+  o.p(PSTR("\"}"));
+  o.flush();
+  endChunked();
 }
 
-static void handleUpdatePage() { netwatch::noteHttp(); /* RECOVERY-CHANGE (0B) */ sendPage(FPSTR(PAGE_UPDATE)); }
+static void handleUpdatePage() {
+  touch();
+  beginPage();
+  server.sendContent_P(PAGE_UPDATE_A);
+#if GQ_STRICT_UPLOAD
+  server.sendContent_P(PAGE_UPDATE_FORCE);
+#endif
+  server.sendContent_P(PAGE_UPDATE_B);
+  endPage();
+}
+
+static void mdnsStart() {
+  MDNS.begin("geekquest");
+  MDNS.addService("http", "tcp", 80);
+}
 
 static void uploadFail(const String& why) {
   if (!s_upFailed) {
@@ -302,10 +630,26 @@ static void handleUpdateChunk() {
     s_upFailed = false;
     s_upError = "";
     s_upBytes = 0;
+    // RECOVERY-CHANGE (chunk1): what the page told us (checked at the end), and memory for the updater
+    memset(&s_upRule, 0, sizeof(s_upRule));
+    s_upRule.want_size = (uint32_t)strtoul(server.arg("size").c_str(), nullptr, 10);
+    String c = server.arg("crc");
+    s_upRule.have_crc = c.length() ? 1 : 0;
+    s_upRule.want_crc = (uint32_t)strtoul(c.c_str(), nullptr, 16);
+    s_upRule.force = server.arg("force") == "1" ? 1 : 0;
+    s_upRule.stock_size = STOCK_SIZE;
+    s_upRule.stock_crc = STOCK_CRC32;
+    upchk_init(&s_upc, GQ_OTA_MARKER);
+    s_upVerdict = -1;
     WiFiUDP::stopAll();
+    MDNS.end();
+    s_freeAtUpload = ESP.getFreeHeap();
+    Serial.print(F("update: start, free heap "));
+    Serial.println(s_freeAtUpload);
     uint32_t maxSpace = freeOtaBytes();
     Update.clearError();
-    if (!Update.begin(maxSpace, U_FLASH)) uploadFail(String(F("cannot start: ")) + Update.getErrorString());
+    if (!Update.begin(maxSpace, U_FLASH))
+      uploadFail(String(F("cannot start (free heap ")) + s_freeAtUpload + F("): ") + Update.getErrorString());
   } else if (up.status == UPLOAD_FILE_WRITE) {
     if (s_upFailed) return;
     if (s_upBytes == 0) {
@@ -317,9 +661,20 @@ static void handleUpdateChunk() {
       return;
     }
     s_upBytes += up.currentSize;
+    upchk_update(&s_upc, up.buf, (uint32_t)up.currentSize);   // RECOVERY-CHANGE (chunk1)
   } else if (up.status == UPLOAD_FILE_END) {
     if (s_upFailed) return;
     if (s_upBytes == 0) { uploadFail(F("empty file")); return; }
+    // RECOVERY-CHANGE (chunk1): size, CRC and marker rule. Always computed and remembered; enforced only with GQ_STRICT_UPLOAD=1.
+    s_upVerdict = upchk_verdict(&s_upc, &s_upRule);
+    if (s_upVerdict != UV_OK) {
+      Serial.print(F("update: check says: "));
+      Serial.println(verdictText(s_upVerdict));
+#if GQ_STRICT_UPLOAD
+      uploadFail(String(verdictText(s_upVerdict)));
+      return;
+#endif
+    }
     if (!Update.end(true)) uploadFail(String(F("verify failed: ")) + Update.getErrorString());
   } else if (up.status == UPLOAD_FILE_ABORTED) {
     uploadFail(F("upload aborted"));
@@ -330,28 +685,30 @@ static void handleUpdateChunk() {
 static void handleUpdateDone() {
   if (s_upFailed || Update.hasError()) {
     s_updating = false;
+    mdnsStart();                               // RECOVERY-CHANGE (chunk1): stopped when the upload began
     server.send(500, F("text/plain"), s_upError.length() ? s_upError : String(F("unknown error")));
     return;
   }
   server.sendHeader(F("Connection"), F("close"));
-  server.send(200, F("text/plain"), String(F("Installed ")) + s_upBytes + F(" bytes."));
-  delay(500);
-  plannedRestart(false);
+  char m[64];
+  snprintf_P(m, sizeof(m), PSTR("Installed %u bytes (CRC32 %08x)."), (unsigned)s_upBytes, (unsigned)upchk_crc(&s_upc));
+  server.send(200, F("text/plain"), m);
+  requestRestart(RR_UPDATE);                   // RECOVERY-CHANGE (chunk1): was delay(500) + plannedRestart(false)
 }
 
 static void handleWifiPage() {
-  netwatch::noteHttp();   // RECOVERY-CHANGE (0B)
-  String b = F("<h2>WiFi setup</h2><div class='box'><form method='post' action='/wifi'>"
-               "Network name<input name='ssid' maxlength='32'>Password<input name='pass' type='password' maxlength='64'>"
-               "<button>Save and connect</button></form><p><small>Saved in the ESP8266's own WiFi settings area, not in the stock firmware's files.</small></p></div><p><a href='/'>Back</a></p>");
-  sendPage(b);
+  touch();
+  beginPage();
+  server.sendContent_P(PAGE_WIFI);
+  endPage();
 }
 
 static void handleWifiSave() {
-  netwatch::noteHttp();   // RECOVERY-CHANGE (0B)
+  touch();
   String ssid = server.arg("ssid"), pass = server.arg("pass");
   if (!ssid.length()) { server.send(400, F("text/plain"), F("Network name is empty")); return; }
-  sendPage(F("<div class='box'>Connecting... Find the clock's new address on its screen, or keep using the rescue hotspot.</div><p><a href='/'>Back</a></p>"));
+  server.send(200, F("text/html"), F("<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><body style='font-family:sans-serif;padding:16px'>"
+                                      "Connecting... Find the clock's new address on its screen, or keep using the rescue hotspot.<p><a href='/'>Back</a>"));
   delay(300);
   WiFi.persistent(true);
   WiFi.begin(ssid.c_str(), pass.c_str());
@@ -359,31 +716,96 @@ static void handleWifiSave() {
   netwatch::setCredentials(ssid.c_str(), pass.c_str());   // RECOVERY-CHANGE (0B): RAM copy + attempt now
 }
 
+static int argInt(const char* name, int lo, int hi, int dflt) {
+  if (!server.hasArg(name)) return dflt;
+  long v = server.arg(name).toInt();
+  return v < lo ? lo : (v > hi ? hi : (int)v);
+}
+
 static void handleSettings() {
-  netwatch::noteHttp();   // RECOVERY-CHANGE (0B)
-  if (server.hasArg("bl")) lcd::setBrightness(server.arg("bl").toInt());
-  if (server.hasArg("depth")) {
-    int d = server.arg("depth").toInt();
-    s_depth = d < 0 ? 0 : (d > 100 ? 100 : d);
+  touch();
+  // RECOVERY-CHANGE (chunk1): the whole form is validated first; an invalid value changes nothing.
+  GqSettings s = persist::settings();
+  s.brightness = (uint8_t)argInt("bl", 0, 100, s.brightness);
+  s.depth = (uint8_t)argInt("depth", 0, 100, s.depth);
+  s.card_period = (uint8_t)argInt("card", 0, GQS_CARD_PERIOD_MAX, s.card_period);
+  if (server.hasArg("f"))
+    s.flags = (uint8_t)((server.hasArg("maint") ? GQS_FLAG_MAINT : 0) | (server.hasArg("night") ? GQS_FLAG_NIGHT : 0));
+  if (server.hasArg("tz") && server.arg("tz").length()) {
+    String tz = server.arg("tz");
+    if (!gqs_tz_valid(tz.c_str())) {
+      server.send(400, F("text/plain"), F("Time zone rejected: use 3 to 34 characters from A-Z a-z 0-9 < > + - : , . / (for example <-03>3). Nothing was changed."));
+      return;
+    }
+    strncpy(s.tz, tz.c_str(), sizeof(s.tz) - 1);
+    s.tz[sizeof(s.tz) - 1] = 0;
   }
-  if (server.hasArg("tz") && server.arg("tz").length() && server.arg("tz").length() < 48) {
-    s_tz = server.arg("tz");
-    setenv("TZ", s_tz.c_str(), 1);
-    tzset();
-  }
-  server.sendHeader(F("Location"), F("/"));
-  server.send(303);
+  gqs_seal(&s);
+  persist::setSettings(s);
+  redirectHome();
 }
 
 static void handleDisplay() {
-  netwatch::noteHttp();   // RECOVERY-CHANGE (0B)
+  touch();
   if (!s_noDisplay) {
     if (server.hasArg("madctl")) lcd::setMadctl((uint8_t)server.arg("madctl").toInt());
     if (server.hasArg("inv")) lcd::setInversion(server.arg("inv").toInt() != 0);
   }
-  server.sendHeader(F("Location"), F("/"));
-  server.send(303);
+  redirectHome();
 }
+
+// RECOVERY-CHANGE (chunk1): controls of design 8.8. Every state-changing POST answers 303 to /.
+static void handleBackupGet() {
+  touch();
+  uint8_t buf[GQS_BACKUP_BYTES];
+  if (!persist::backupExport(buf)) { server.send(503, F("text/plain"), F("No saved game to export yet.")); return; }
+  char d[72];
+  char g[96];
+  persist::gameSummary(g, sizeof(g));
+  int day = 0;
+  const char* q = strstr(g, "day ");
+  if (q) day = atoi(q + 4);
+  snprintf_P(d, sizeof(d), PSTR("attachment; filename=\"geekquest-day%d.gqs\""), day);
+  server.sendHeader(F("Content-Disposition"), d);
+  server.setContentLength(GQS_BACKUP_BYTES);
+  server.send(200, F("application/octet-stream"), "");
+  server.sendContent_P((PGM_P)buf, GQS_BACKUP_BYTES);
+}
+
+static void handleBackupChunk() {
+  HTTPUpload& up = server.upload();
+  if (up.status == UPLOAD_FILE_START) {
+    s_bkLen = 0; s_bkOver = false; s_bkOk = false;
+  } else if (up.status == UPLOAD_FILE_WRITE) {
+    if (s_bkLen + up.currentSize > sizeof(s_bk)) s_bkOver = true;
+    else { memcpy(s_bk + s_bkLen, up.buf, up.currentSize); s_bkLen += (uint16_t)up.currentSize; }
+  } else if (up.status == UPLOAD_FILE_END) {
+    s_bkOk = !s_bkOver && s_bkLen == GQS_BACKUP_BYTES && persist::backupImport(s_bk, s_bkLen);
+  }
+}
+
+static void handleBackupDone() {
+  touch();
+  if (!s_bkOk) {
+    server.send(400, F("text/plain"), F("Backup rejected: the file is not a valid GeekQuest backup (wrong size, damaged, or from an incompatible version). Nothing was changed."));
+    return;
+  }
+  redirectHome();
+}
+
+static void handleSave() { touch(); persist::saveNow(); redirectHome(); }
+static void handleFactory() { touch(); persist::factoryResetGame(); clearQuarantine(); redirectHome(); }
+static void handleResetSettings() { touch(); persist::resetSettings(); redirectHome(); }
+static void handleQuarantine() {
+  touch();
+  if (server.arg("a") == "retry") { clearQuarantine(); server.send(200, F("text/plain"), F("Restarting with the saved game")); requestRestart(RR_USER); return; }
+  if (server.arg("a") == "discard") persist::discardSavedGame();
+  redirectHome();
+}
+#if GQ_FLASH_SAVE
+static void handleFlashOn() { touch(); persist::flashEnable(); redirectHome(); }
+static void handleFlashOff() { touch(); persist::flashDisableAndErase(); redirectHome(); }
+#endif
 
 static void handleNotFound() {
   netwatch::noteHttp();   // RECOVERY-CHANGE (0B)
@@ -409,6 +831,7 @@ void begin() {
   // RECOVERY-CHANGE (0B): WiFi.setAutoReconnect(true) removed; netwatch::begin() turns it off
   startAP();
   s_bootMs = millis();                 // RECOVERY-CHANGE (0B): time base for golden() and the stable marker
+  heapwatch_init(&s_hw);               // RECOVERY-CHANGE (chunk1)
   netwatch::begin(s_safe);             // RECOVERY-CHANGE (0B): after startAP(), before the first WiFi.begin()
 
   // Reconnect to the network saved in the ESP8266's WiFi settings (the stock
@@ -428,16 +851,66 @@ void begin() {
   server.on("/wifi", HTTP_POST, handleWifiSave);
   server.on("/settings", HTTP_POST, handleSettings);
   server.on("/display", HTTP_GET, handleDisplay);
-  server.on("/reboot", HTTP_POST, []() { server.send(200, F("text/plain"), F("Restarting")); delay(300); plannedRestart(false); });
-  server.on("/safemode", HTTP_POST, []() { server.send(200, F("text/plain"), F("Restarting into safe mode")); delay(300); plannedRestart(true); });
+  // RECOVERY-CHANGE (chunk1): restarts go through requestRestart(); the reply is sent first, loop() restarts
+  server.on("/reboot", HTTP_POST, []() { server.send(200, F("text/plain"), F("Restarting")); requestRestart(RR_USER); });
+  server.on("/safemode", HTTP_POST, []() { server.send(200, F("text/plain"), F("Restarting into safe mode")); requestRestart(RR_SAFEMODE); });
+  // RECOVERY-CHANGE (chunk1): new routes of design 8.8
+  server.on("/backup", HTTP_GET, handleBackupGet);
+  server.on("/backup", HTTP_POST, handleBackupDone, handleBackupChunk);
+  server.on("/save", HTTP_POST, handleSave);
+  server.on("/factory", HTTP_POST, handleFactory);
+  server.on("/reset_settings", HTTP_POST, handleResetSettings);
+  server.on("/quarantine", HTTP_POST, handleQuarantine);
+#if GQ_FLASH_SAVE
+  server.on("/flash_on", HTTP_POST, handleFlashOn);
+  server.on("/flash_off", HTTP_POST, handleFlashOff);
+#endif
   server.onNotFound(handleNotFound);
   server.begin();
 
-  MDNS.begin("geekquest");
-  MDNS.addService("http", "tcp", 80);
+  mdnsStart();
 
   settimeofday_cb([]() { s_timeSynced = true; netwatch::noteNtp(); });   // RECOVERY-CHANGE (0B): noteNtp
-  configTime(s_tz.c_str(), "pool.ntp.org", "time.google.com");
+  configTime(s_tz, "pool.ntp.org", "time.google.com");
+}
+
+static void heapWatchdog() {
+  uint32_t now = millis();
+  if (now - s_lastHeapSample < HEAP_SAMPLE_MS) return;
+  s_lastHeapSample = now;
+  uint8_t r = heapwatch_step(&s_hw, now, ESP.getFreeHeap(), ESP.getMaxFreeBlockSize());
+  s_heapWarn = (r & HW_WARN) != 0;
+  if (r & HW_RESTART) {
+    if (!s_heapReq) { s_heapReq = true; requestRestart(RR_HEAP); }
+  } else {
+    s_heapReq = false;
+    if (s_pending == RR_HEAP) s_pending = RR_NONE;       // the condition went away: cancel a waiting restart
+  }
+}
+
+static void maintenanceCheck() {
+  static uint32_t last = 0;
+  uint32_t now = millis();
+  if (now - last < 1000) return;
+  last = now;
+  MaintIn in;
+  memset(&in, 0, sizeof(in));
+  in.enabled = (persist::settings().flags & GQS_FLAG_MAINT) ? 1 : 0;
+  in.uptime_ms = now - s_bootMs;
+  int h = 0, m = 0;
+  in.clock_valid = localTime(h, m) ? 1 : 0;
+  in.hour = (uint8_t)h;
+  in.minute = (uint8_t)m;
+  in.hero_asleep = (s_asleepFn && s_asleepFn()) ? 1 : 0;
+  in.ap_clients = (uint8_t)WiFi.softAPgetStationNum();
+  in.updating = s_updating ? 1 : 0;
+  in.since_http_ms = msSinceRequest();
+  if (maint_due(&in)) {
+    if (!s_maintReq) { s_maintReq = true; requestRestart(RR_MAINT); }
+  } else {
+    s_maintReq = false;
+    if (s_pending == RR_MAINT) s_pending = RR_NONE;
+  }
 }
 
 void loop() {
@@ -451,6 +924,15 @@ void loop() {
     s_stableMarked = true;
     markStable();
   }
+  // RECOVERY-CHANGE (chunk1): slow-crash counter, heap watchdog, weekly restart, pending restarts
+  if (!s_slowCleared && millis() - s_bootMs >= SLOW_STABLE_MS) {
+    s_slowCleared = true;
+    s_r2.slow = 0;
+    r2Write();
+  }
+  heapWatchdog();
+  maintenanceCheck();
+  processRestart();
 }
 
 // RECOVERY-CHANGE (0B): golden()

@@ -11,9 +11,13 @@
 #include <string.h>
 #include <user_interface.h>
 
-// Approval switches. Both default OFF (design 12.2 A2 and A3).
+// Approval switches. All default OFF (design 12.2 A2 and A3).
 //   -DGQ_NET_NO_SLEEP          WiFi modem sleep off (about 0.25 W more power)
-//   -DGQ_NET_PLANNED_RESTART   NA_RESTART really restarts (otherwise it is only logged)
+//   -DGQ_AUTO_RESTART=1        NA_RESTART really restarts (otherwise safety::requestRestart only logs it)
+// RECOVERY-CHANGE (chunk1): GQ_NET_PLANNED_RESTART is replaced by GQ_AUTO_RESTART, decided in safety.cpp
+#ifndef GQ_AUTO_RESTART
+#define GQ_AUTO_RESTART 0
+#endif
 
 namespace netwatch {
 
@@ -31,6 +35,57 @@ static uint32_t s_lastHttp = 0;         // 0 = never
 static uint32_t s_lastNtp = 0;          // 0 = never
 static uint8_t s_lastReason = 0;
 static uint32_t s_reconnects = 0;
+// RECOVERY-CHANGE (chunk1): link-good tracking and the network event log in RTC blocks 112..127
+static uint32_t s_upSince = 0;
+static bool s_linkGoodSent = false;
+static uint8_t s_prevStage = 0xFF;
+static uint8_t s_evSeq = 0;
+static const uint32_t EV_OFFSET = 112;
+static const uint8_t EV_SLOTS = 8;
+enum { EV_UP = 1, EV_DOWN, EV_STAGE, EV_RESTART_REQ, EV_SNTP_KICK, EV_AP_ON, EV_AP_OFF };
+
+struct EvRec { uint32_t stamp; uint8_t kind, reason, seq, chk; };
+static uint8_t evChk(const EvRec& e) {
+  return (uint8_t)(e.stamp ^ (e.stamp >> 8) ^ (e.stamp >> 16) ^ (e.stamp >> 24) ^ e.kind ^ e.reason ^ e.seq ^ 0xA5);
+}
+static bool evRead(uint8_t slot, EvRec& e) {
+  uint32_t w[2];
+  ESP.rtcUserMemoryRead(EV_OFFSET + slot * 2, w, sizeof(w));
+  e.stamp = w[0];
+  e.kind = (uint8_t)w[1];
+  e.reason = (uint8_t)(w[1] >> 8);
+  e.seq = (uint8_t)(w[1] >> 16);
+  e.chk = (uint8_t)(w[1] >> 24);
+  return e.kind != 0 && e.chk == evChk(e);
+}
+static void evAdd(uint8_t kind, uint8_t reason) {
+  EvRec e;
+  time_t t = time(nullptr);
+  e.stamp = t > 1600000000 ? (uint32_t)t : (0x80000000u | (millis() / 1000));
+  e.kind = kind;
+  e.reason = reason;
+  e.seq = s_evSeq;
+  e.chk = evChk(e);
+  uint32_t w[2] = {e.stamp, (uint32_t)e.kind | ((uint32_t)e.reason << 8) | ((uint32_t)e.seq << 16) | ((uint32_t)e.chk << 24)};
+  ESP.rtcUserMemoryWrite(EV_OFFSET + (s_evSeq & (EV_SLOTS - 1)) * 2, w, sizeof(w));
+  s_evSeq++;
+}
+static void evInit(bool cold) {
+  if (cold) {
+    uint32_t z[16] = {0};
+    ESP.rtcUserMemoryWrite(EV_OFFSET, z, sizeof(z));
+    s_evSeq = 0;
+    return;
+  }
+  bool have[256] = {false};
+  bool any = false;
+  EvRec e;
+  for (uint8_t i = 0; i < EV_SLOTS; i++) if (evRead(i, e)) { have[e.seq] = true; any = true; }
+  s_evSeq = 0;
+  if (!any) return;
+  for (uint16_t q = 0; q < 256; q++)           // newest = valid entry whose successor is not present
+    if (have[q] && !have[(q + 1) & 0xFF]) { s_evSeq = (uint8_t)(q + 1); break; }
+}
 
 // Handlers run in the SDK's context: set flags only.
 static WiFiEventHandler s_hDisc, s_hGot;
@@ -64,6 +119,7 @@ void begin(bool safeMode) {
   });
   s_hGot = WiFi.onStationModeGotIP([](const WiFiEventStationModeGotIP&) { s_gotFlag = true; });
 
+  evInit(safety::coldBoot());             // RECOVERY-CHANGE (chunk1)
   uint32_t now = millis();
   netfsm_init(&s_fsm, now, now ^ ESP.getChipId() ^ ESP.getCycleCount());
   s_lastTick = now;
@@ -88,8 +144,8 @@ static void doActions(uint8_t a) {
     WiFi.enableSTA(false);
     s_staOnPending = true;
   }
-  if (a & NA_AP_ON) safety::startAP();
-  if (a & NA_AP_OFF) safety::stopAP();
+  if (a & NA_AP_ON) { safety::startAP(); evAdd(EV_AP_ON, 0); }
+  if (a & NA_AP_OFF) { safety::stopAP(); evAdd(EV_AP_OFF, 0); }
   if (a & NA_MDNS_RESTART) {
     MDNS.end();
     MDNS.begin("geekquest");
@@ -98,14 +154,12 @@ static void doActions(uint8_t a) {
   if (a & NA_SNTP_KICK) {
     const char* tz = getenv("TZ");   // safety.cpp's configTime() set it
     configTime(tz && *tz ? tz : "UTC0", "pool.ntp.org", "time.google.com");
+    evAdd(EV_SNTP_KICK, 0);              // RECOVERY-CHANGE (chunk1)
   }
   if (a & NA_RESTART) {
-#ifdef GQ_NET_PLANNED_RESTART
-    Serial.println(F("netwatch: WiFi down too long, restarting"));
-    safety::plannedRestart(false);
-#else
-    Serial.println(F("netwatch: restart requested (not enabled in this build)"));
-#endif
+    // RECOVERY-CHANGE (chunk1): safety decides (gate, GQ_AUTO_RESTART); without the flag it is only logged
+    evAdd(EV_RESTART_REQ, 0);
+    safety::requestRestart(safety::RR_WIFI);
   }
 }
 
@@ -122,10 +176,12 @@ void loop() {
   if (s_discFlag) {
     s_discFlag = false;
     s_lastReason = s_discReason;
+    evAdd(EV_DOWN, s_discReason);        // RECOVERY-CHANGE (chunk1)
   }
   if (s_gotFlag) {
     s_gotFlag = false;
     s_reconnects++;
+    evAdd(EV_UP, 0);                     // RECOVERY-CHANGE (chunk1)
   }
 
   NetIn in;
@@ -136,20 +192,36 @@ void loop() {
   in.updating = safety::updating() ? 1 : 0;
   in.safe_mode = s_safe ? 1 : 0;
   if (in.sta_up) s_everConnected = true;
-  in.ever_connected = s_everConnected ? 1 : 0;
-  in.restarts_done = 0;                 // chunk 1 keeps this in RTC
+  // RECOVERY-CHANGE (chunk1): both live in RTC now, so they survive the restart the ladder asks for
+  if (in.sta_up) {
+    safety::noteConnected();
+    if (!s_linkGoodSent && s_upSince && now - s_upSince >= 120000UL) { s_linkGoodSent = true; safety::noteLinkGood(); }
+  }
+  in.ever_connected = safety::everConnected() ? 1 : 0;
+  in.restarts_done = safety::wifiRestarts();
   in.last_http_ms = s_lastHttp;
   in.last_ntp_ms = s_lastNtp;
 
-  if (in.sta_up) s_down = false;
-  else if (!s_down) { s_down = true; s_downSince = now; }
+  if (in.sta_up) {
+    s_down = false;
+    if (!s_upSince) s_upSince = now ? now : 1;
+  } else {
+    s_upSince = 0;
+    s_linkGoodSent = false;
+    if (!s_down) { s_down = true; s_downSince = now; }
+  }
 
   doActions(netfsm_step(&s_fsm, &in));
+  uint8_t st = netfsm_stage(&s_fsm);       // RECOVERY-CHANGE (chunk1): log ladder stage changes
+  if (st != s_prevStage) {
+    if (s_prevStage != 0xFF) evAdd(EV_STAGE, st);
+    s_prevStage = st;
+  }
 }
 
 uint8_t stage() {
   uint8_t s = netfsm_stage(&s_fsm);
-#ifndef GQ_NET_PLANNED_RESTART
+#if !GQ_AUTO_RESTART                    // RECOVERY-CHANGE (chunk1)
   if (s == NS_RESTART) s = NS_CYCLE;    // no restart will follow in this build
 #endif
   return s;
@@ -157,6 +229,35 @@ uint8_t stage() {
 uint32_t attempts() { return netfsm_attempts(&s_fsm); }
 uint32_t downSeconds() { return s_down ? (millis() - s_downSince) / 1000 : 0; }
 uint8_t lastReason() { return s_lastReason; }
+
+// RECOVERY-CHANGE (chunk1): diagnostics for the status page
+uint32_t reconnects() { return s_reconnects; }
+uint32_t ntpAgeSeconds() { return s_lastNtp ? (millis() - s_lastNtp) / 1000 : 0xFFFFFFFFu; }
+bool eventLine(uint8_t i, char* buf, size_t n) {
+  if (i >= EV_SLOTS) return false;
+  uint8_t seq = (uint8_t)(s_evSeq - 1 - i);
+  EvRec e;
+  if (!evRead(seq & (EV_SLOTS - 1), e) || e.seq != seq) return false;
+  char when[24];
+  if (e.stamp & 0x80000000u) snprintf(when, sizeof(when), "boot+%us", (unsigned)(e.stamp & 0x7FFFFFFFu));
+  else {
+    time_t t = (time_t)e.stamp;
+    struct tm tmv;
+    localtime_r(&t, &tmv);
+    snprintf(when, sizeof(when), "%02d-%02d %02d:%02d", tmv.tm_mon + 1, tmv.tm_mday, tmv.tm_hour, tmv.tm_min);
+  }
+  switch (e.kind) {
+    case EV_UP: snprintf(buf, n, "%s link up", when); break;
+    case EV_DOWN: snprintf(buf, n, "%s link down, SDK reason %u", when, (unsigned)e.reason); break;
+    case EV_STAGE: snprintf(buf, n, "%s ladder stage %u", when, (unsigned)e.reason); break;
+    case EV_RESTART_REQ: snprintf(buf, n, "%s restart requested", when); break;
+    case EV_SNTP_KICK: snprintf(buf, n, "%s time sync restarted", when); break;
+    case EV_AP_ON: snprintf(buf, n, "%s hotspot on", when); break;
+    case EV_AP_OFF: snprintf(buf, n, "%s hotspot off", when); break;
+    default: snprintf(buf, n, "%s event %u", when, (unsigned)e.kind); break;
+  }
+  return true;
+}
 
 void noteNtp() {
   uint32_t n = millis();
