@@ -10,7 +10,7 @@ static uint32_t rnd32() {
 
 // keys that describe the transient picture, not the saved game
 static bool transient_key(int k) {
-  return k == GQ_Q_HERO_PRESENCE || k == GQ_Q_HERO_ACT || k == GQ_Q_HERO_TILE || k == GQ_Q_ACTORS_VISIBLE ||
+  return k == GQ_Q_HERO_PRESENCE || k == GQ_Q_HERO_AREA || k == GQ_Q_HERO_ACT || k == GQ_Q_HERO_TILE || k == GQ_Q_ACTORS_VISIBLE ||
          k == GQ_Q_CARD;
 }
 

@@ -48,14 +48,16 @@ int main() {
                 (int)gc_query(GQ_Q_COINS), (int)gc_query(GQ_Q_STARS));
     CHECK(bad_presence == 0);                       // the hero is accounted for in 100% of samples
     CHECK(over_cap == 0);                           // coins never exceed the wallet cap
-    CHECK(max_earned_day <= 60 + 3 * 14);           // till plus three errands
+    CHECK(max_earned_day <= 60 + 3 * 14 + 10);      // till, three errands, finds (at most 10 a day, chunk 3)
     CHECK(days_seen >= 2);
     CHECK(chopped_samples == 0 || wood_ok * 100 >= chopped_samples * 80);
     CHECK(gc_query(GQ_Q_COINS) <= 250);
     CHECK(max_coins <= 250);
     // both stopgaps were really exercised
+    // chunk 3: the hero is in areas and interiors; the postcard is gone, curtains and the sleeping Zzz remain
     CHECK(by_presence[GQ_PRES_DOOR] > 0);
-    CHECK(by_presence[GQ_PRES_POSTCARD] > 0);
+    CHECK(by_presence[GQ_PRES_CURTAIN] > 0);
+    CHECK(by_presence[GQ_PRES_POSTCARD] == 0);
   }
   std::printf("PASS\n");
   return 0;
