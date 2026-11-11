@@ -76,17 +76,24 @@ static int goal_available(int i) {
   return can_get(r.m1, r.n1) && can_get(r.m2, r.n2);
 }
 
-// The current goal: the first one that can be bought now or later today (prerequisite bought,
-// day reached, materials obtainable); when none is available yet, the first one not bought, so
-// the band always has something to show. -1 = everything bought (village fund mode).
+// The current goal: the first one that can be bought now (prerequisite bought, day reached,
+// materials obtainable). When none is available yet, the one that opens soonest (prerequisite
+// bought, materials obtainable, smallest min_day), so the hero saves up for what comes next and
+// the band shows it. Last resort: the first one not bought. -1 = everything bought (village fund).
 static int find_goal(void) {
-  int first_unbought = -1;
+  int first_unbought = -1, soonest = -1, soonest_day = 256;
   for (int i = 0; i < GOAL_COUNT; i++) {
     if (goal_bought(i)) continue;
     if (first_unbought < 0) first_unbought = i;
     if (goal_available(i)) return i;
+    GoalRow r;
+    goal_row(i, &r);
+    if ((r.pre == NO_PRE || goal_bought(r.pre)) && can_get(r.m1, r.n1) && can_get(r.m2, r.n2) && r.day < soonest_day) {
+      soonest = i;
+      soonest_day = r.day;
+    }
   }
-  return first_unbought;
+  return soonest >= 0 ? soonest : first_unbought;
 }
 
 static void sync_goal(void) {
