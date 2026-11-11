@@ -18,11 +18,17 @@ jobs:
           pip install pillow
           python tools/png2tiles.py
           git diff --exit-code lib/gamecore/src/assets_gen.h || (echo "assets_gen.h is stale: run python tools/png2tiles.py and commit" && exit 1)
-      - name: Smoke test (ASan/UBSan, 1 h simulated per scene)
+      - name: Host tests (ASan/UBSan, one executable per test/test_*.cpp and core_smoke.cpp)
         run: |
-          g++ -std=c++17 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -Wall -Wextra -Werror \
-            -o core_smoke test/core_smoke.cpp lib/gamecore/src/*.cpp
-          ./core_smoke
+          set -e
+          shopt -s nullglob
+          for t in test/*.cpp; do
+            n=$(basename "$t" .cpp)
+            echo "=== $n"
+            g++ -std=c++17 -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -Wall -Wextra -Werror \
+              -o "$n" "$t" lib/gamecore/src/*.cpp lib/gqsafe/src/*.cpp
+            ./"$n"
+          done
       - name: Build browser preview
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq clang lld
