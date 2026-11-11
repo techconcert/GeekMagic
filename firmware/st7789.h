@@ -16,6 +16,11 @@ int brightness();
 // Runtime fixes for colour order / inversion (not saved; for testing only).
 void setMadctl(uint8_t v);
 void setInversion(bool on);
+// R3 S1: display off + sleep in + backlight off; wake() re-runs begin() (hardware reset, init sequence, black, backlight).
+// While asleep pushRows/fill/setBrightness/setMadctl/setInversion only record state. Called from nightmode.cpp only.
+void sleep();
+void wake();
+bool asleep();
 uint8_t madctl();
 bool inversion();
 

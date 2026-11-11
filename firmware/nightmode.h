@@ -6,10 +6,11 @@
 #include <stdint.h>
 
 namespace nightmode {
+enum : uint8_t { CMD_WAKE_NOW = 1, CMD_SLEEP_NOW = 2 };   // values for command(); anything else is ignored (contract with config.cpp)
 void begin(bool safeMode, bool display);
 void loop();
 bool screenOff();                          // true while the display is switched off: main.cpp then skips rendering
 bool wakeSoon();                           // the last 5 minutes before the wake time
-void command(uint8_t cmd);                 // from the settings page: wake now / sleep now (values chosen by S1)
+void command(uint8_t cmd);                 // from the settings page: 1 = wake now, 2 = sleep now; carried out within one second
 void statusLine(char* buf, size_t n);      // plain text; empty string = nothing to show
 }  // namespace nightmode

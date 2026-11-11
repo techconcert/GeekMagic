@@ -12,6 +12,7 @@ static constexpr uint32_t SPI_HZ = 40000000;
 static uint8_t s_madctl = 0x00;
 static bool s_inv = true;
 static int s_bright = 80;
+static bool s_asleep = false;      // R3 S1: panel in SLPIN, backlight off; every driver call that would light or draw is held back
 
 static inline void cmd(uint8_t c) {
   digitalWrite(PIN_DC, LOW);
@@ -38,6 +39,7 @@ void setBrightness(int percent) {
   if (percent < 0) percent = 0;
   if (percent > 100) percent = 100;
   s_bright = percent;
+  if (s_asleep) return;                       // R3 S1: remembered, applied by wake() -> begin()
   pinMode(PIN_BL, OUTPUT);
   if (percent == 0) { digitalWrite(PIN_BL, HIGH); return; }
   if (percent == 100) { digitalWrite(PIN_BL, LOW); return; }
@@ -96,6 +98,7 @@ void begin() {
 }
 
 void pushRows(int y, int h, const uint16_t* px) {
+  if (s_asleep) return;
   window(0, y, 239, y + h - 1);
   // SPI.writeBytes reads 32 bits at a time: the buffer must be 4-byte aligned.
   if (((uintptr_t)px & 3) == 0) {
@@ -106,13 +109,39 @@ void pushRows(int y, int h, const uint16_t* px) {
 }
 
 void fill(uint16_t c) {
+  if (s_asleep) return;
   window(0, 0, 239, 239);
   uint8_t pat[2] = {(uint8_t)(c & 0xFF), (uint8_t)(c >> 8)};  // c is already big-endian in memory order
   SPI.writePattern(pat, 2, 240 * 240);
 }
 
-void setMadctl(uint8_t v) { s_madctl = v; cmdData(0x36, &s_madctl, 1); }
-void setInversion(bool on) { s_inv = on; cmd(on ? 0x21 : 0x20); }
+void setMadctl(uint8_t v) { s_madctl = v; if (!s_asleep) cmdData(0x36, &s_madctl, 1); }
+void setInversion(bool on) { s_inv = on; if (!s_asleep) cmd(on ? 0x21 : 0x20); }
+// R3 S1 (docs/DESIGN-R3.md 3.4). Only nightmode.cpp calls these (lint L12).
+// sleep(): backlight off first (digitalWrite also stops the PWM), then DISPOFF (0x28) and SLPIN (0x10). The panel needs
+// 5 ms after SLPIN before the next command; we send none until wake().
+void sleep() {
+  if (s_asleep) return;
+  s_asleep = true;
+  pinMode(PIN_BL, OUTPUT);
+  digitalWrite(PIN_BL, HIGH);                 // active LOW: HIGH = dark
+  cmd(0x28);
+  delay(10);
+  cmd(0x10);
+  delay(10);
+}
+
+// wake(): the full boot sequence. It starts with the RST pin pulse, which is valid in every panel state (also if SLPIN or
+// a power glitch lost the settings), then SLPOUT + 120 ms, all registers, DISPON, a black fill and only then the
+// backlight at the remembered brightness. Colour order, inversion and brightness come from the statics above.
+// Blocks about 0.4 s (delay() keeps the WiFi stack serviced). The caller redraws everything afterwards.
+void wake() {
+  s_asleep = false;
+  begin();
+}
+
+bool asleep() { return s_asleep; }
+
 uint8_t madctl() { return s_madctl; }
 bool inversion() { return s_inv; }
 
