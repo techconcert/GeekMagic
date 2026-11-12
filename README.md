@@ -9,10 +9,10 @@ bottom band shows what the hero is doing right now, the clock's IP address and t
 
 **Download:** every build of the `main` branch is published on the
 [Releases page](https://github.com/techconcert/GeekMagic/releases). Releases are named by number
-(GeekQuest r5, **GeekQuest r6**, ...; the number lives in the `VERSION` file) and the newest is marked
+(GeekQuest r6, **GeekQuest r7**, ...; the number lives in the `VERSION` file) and the newest is marked
 "Latest". Each release has the two firmware files, `preview.html` (the game in your browser)
 and `SHA256SUMS.txt`. The file names also carry the short commit, for example
-`SDP_GeekQuest_quest_r6-1a2b3c4.bin`.
+`SDP_GeekQuest_quest_r7-1a2b3c4.bin`.
 
 ## What the game looks like
 
