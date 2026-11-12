@@ -196,6 +196,17 @@ textarea { width: 100%; box-sizing: border-box; height: 5.2em; font-family: var(
           <p class="note">Preview only. It plays the real scene (cave, shop, forest and so on) without changing the clock firmware.</p>
         </div>
         <div class="group">
+          <h2>Deep mission</h2>
+          <div class="seg">
+            <select id="dv-biome" aria-label="Where">
+              <option value="1">Deep forest</option><option value="2">Deep caves</option><option value="3">Deep ruins</option>
+            </select>
+            <input id="dv-seed" type="number" min="0" max="1073741823" value="0" aria-label="Level seed (0 = a new one each time)">
+            <button class="small" id="dv-go" type="button">Start mission</button>
+          </div>
+          <p class="note">The hero walks to the entrance and explores the generated level (20 to 30 rooms, about 40 minutes). The band at the bottom reads DEEP CAVES 12/24. Level seed 0 picks a new level. Use a fast speed, and keep the clock in daytime: he turns back at bed time.</p>
+        </div>
+        <div class="group">
           <h2>Info cards</h2>
           <div class="seg" id="cards">
             <button class="small" data-v="1" type="button">Clock</button>
@@ -407,13 +418,14 @@ textarea { width: 100%; box-sizing: border-box; height: 5.2em; font-family: var(
    "FESTIVAL", "EVENT", "HERO_PRESENCE", "HERO_AREA", "HERO_ACT", "HERO_HEARTS", "HERO_TILE", "GOAL", "GOAL_PRICE",
    "PROJECTS", "CHAPTER", "QUEST", "QUEST_STEP", "QUEST_COUNT", "TILL_LEFT", "ERRANDS_TODAY", "ACH_COUNT",
    "SEEN_COUNT", "CARD", "ACTORS_VISIBLE", "HERO_ABED", "LIVE_WX", "LIVE_TEMP", "LIVE_FLAGS", "SLEEP_MODE"].forEach((k, i) => { Q[k] = i; });
-  const DBG = { ADD_COINS: 0, SET_DAY: 1, SET_WEATHER: 2, ADD_ITEM: 3, START_QUEST: 4, SHOW_CARD: 5, FORCE_ACT: 6, BUY_GOAL: 7, NEXT_DAY: 8, FORCE_CHAT: 9, TALK_TURNS: 10 };
+  const DBG = { ADD_COINS: 0, SET_DAY: 1, SET_WEATHER: 2, ADD_ITEM: 3, START_QUEST: 4, SHOW_CARD: 5, FORCE_ACT: 6, BUY_GOAL: 7, NEXT_DAY: 8, FORCE_CHAT: 9, TALK_TURNS: 10, DELVE: 11 };
   const NAMES = {
     SEASON: ["spring", "summer", "autumn", "winter"],
     WEATHER: ["clear", "cloudy", "rain", "storm", "fog", "snow", "windy"],
     HERO_PRESENCE: ["none", "sprite", "door", "postcard", "curtain"],
     CARD: ["none", "clock", "pack", "quest", "village"],
     FESTIVAL: { "-1": "none", 0: "blossom", 1: "lantern", 2: "harvest", 3: "snow lights" },
+    HERO_AREA: ["village", "forest", "shore", "cave", "ruins", "home", "shop", "tavern", "deep level"],
   };
   const READ = ["DAY", "MINUTE", "SEASON", "WEATHER", "FESTIVAL", "EVENT", "COINS", "COIN_CAP", "STARS", "FUND",
     "EARNED_TOTAL", "GOAL", "GOAL_PRICE", "PROJECTS", "CHAPTER", "QUEST", "QUEST_STEP", "QUEST_COUNT", "HERO_PRESENCE",
@@ -464,6 +476,10 @@ textarea { width: 100%; box-sizing: border-box; height: 5.2em; font-family: var(
     $("quest-go").addEventListener("click", () => dbg(DBG.START_QUEST, +$("quest-n").value || 0));
     $("act-go").addEventListener("click", () => dbg(DBG.FORCE_ACT, +$("act-n").value));
     $("goal-buy").addEventListener("click", () => dbg(DBG.BUY_GOAL, 0));
+    $("dv-go").addEventListener("click", () => {   // arg = biome 1..3 | seed << 2 (a 30-bit seed; 0 = random)
+      const seed = (+$("dv-seed").value | 0) || ((Math.random() * 0x3fffffff) | 1);
+      dbg(DBG.DELVE, (seed << 2) | +$("dv-biome").value);
+    });
     $("cards").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) dbg(DBG.SHOW_CARD, +b.dataset.v); });
     $("card-period").addEventListener("change", () => ex.set_option(0, +$("card-period").value));
     $("wifi-down").addEventListener("change", () => ex.set_net($("wifi-down").checked ? 1 : 0));
