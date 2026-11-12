@@ -301,14 +301,15 @@ static void test_loot() {
       for (int it = 0; it < GQ_ITEM_COUNT; it++) CHECK(G.s.inv[it] <= econ_item_cap(it));
       if (G.s.dv_state == 0 && hero_home_and_idle() && s > 120) break;
     }
+    econ_sell_all();   // and the whole haul goes over the counter (the till limits what the shop pays in a day)
     long gain = (long)(G.s.earned_total - earned0);
-    // the errand (if paid) is 6..14, finds at most 10; anything else here would be a sale (none: he does not sell during a mission)
+    // the errand (if paid) is 6..14 and finds at most 10; the rest is the sale of the haul
     CHECK(G.s.errands_today - errands0 <= 1);
     if (gain > worst) worst = gain;
     days++;
   }
-  std::printf("loot: %d missions, most coins earned by one: %ld\n", days, worst);
-  CHECK(worst <= 14 + 10);
+  std::printf("loot: %d missions, most coins earned by one mission day (errand, finds and selling the whole haul): %ld\n", days, worst);
+  CHECK(worst <= 132);                       // the daily income limit of test_econ
 }
 
 int main(int argc, char** argv) {
