@@ -51,9 +51,9 @@ int str_len(const char* s);
 void set_tint(int r256, int g256, int b256);
 
 // ---- drawing into one 240x16 strip whose top is at y0 ----
-const uint8_t* sheet_cell(int sheet, int cell);
-void blit_tile(uint16_t* out, int x, const uint8_t* tile, int transparent);
-void blit_sprite(uint16_t* out, int y0, int sx, int sy, const uint8_t* cell, int flip, const uint8_t* remap, const uint16_t* pal);
+gc_cell sheet_cell(int sheet, int cell);
+void blit_tile(uint16_t* out, int x, gc_cell tile, int transparent);
+void blit_sprite(uint16_t* out, int y0, int sx, int sy, gc_cell cell, int flip, const uint8_t* remap, const uint16_t* pal);
 void fill_rect(uint16_t* out, int y0, int x, int y, int w, int h, uint16_t c);
 void darken_rect(uint16_t* out, int y0, int x, int y, int w, int h);
 void draw_text(uint16_t* out, int y0, int x, int y, const char* s, uint16_t c, int scale, int shadow);

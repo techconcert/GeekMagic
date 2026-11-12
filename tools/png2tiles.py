@@ -4,9 +4,11 @@
 
 Rules: every pixel must be one of the 16 palette colours in tools/palette.py
 (magenta = transparent). Sheets are cut into 16x16 cells, left-to-right,
-top-to-bottom. Each distinct cell becomes 128 bytes (2 pixels per byte, high
-nibble = left pixel); identical cells (placeholders) are stored once and found
-through GC_<NAME>_MAP, read with the GC_<NAME>(id) macro. Output: lib/gamecore/src/assets_gen.h
+top-to-bottom. A cell is 16 rows of 8 bytes (2 pixels per byte, high nibble = left pixel).
+R6: every distinct ROW of every sheet is stored once in GC_ROWTAB[n][8]; a distinct cell is just 16 uint16
+row numbers (GC_<NAME>_CELLS), and identical cells (placeholders) are stored once and found through
+GC_<NAME>_MAP. Read a cell with the GC_<NAME>(id) macro: it gives a `const uint16_t*` (gc_cell), and a row's
+pixels are GC_ROWTAB[GC_RD16(&cell[r])]. Output: lib/gamecore/src/assets_gen.h
 """
 import os
 import sys
@@ -74,26 +76,47 @@ def main():
         "};",
         "",
     ]
+    # pass 1: cut all sheets, build the shared row table
+    sheets = []
+    rowtab, rowidx = [], {}
     for fname, cname in SHEETS:
         cells, cols, rows = cut(os.path.join(SRC, fname))
-        # Identical cells (placeholders) are stored once: GC_<NAME>_MAP[id] -> unique index.
         uniq, index = [], []
         for c in cells:
             if c not in uniq:
                 uniq.append(c)
             index.append(uniq.index(c))
         assert len(uniq) <= 256
+        cellrows = []
+        for c in uniq:
+            idx = []
+            for r in range(16):
+                row = c[r * 8:(r + 1) * 8]
+                if row not in rowidx:
+                    rowidx[row] = len(rowtab)
+                    rowtab.append(row)
+                idx.append(rowidx[row])
+            cellrows.append(idx)
+        sheets.append((fname, cname, cells, cols, rows, uniq, index, cellrows))
+    assert len(rowtab) < 65536
+    out.append(f"#define GC_ROWS_COUNT {len(rowtab)}")
+    out.append(f"extern const uint8_t GC_ROWTAB[{len(rowtab)}][8];")
+    out.append("typedef const uint16_t* gc_cell;   // 16 row numbers into GC_ROWTAB")
+    defs.append(f"const uint8_t GC_ROWTAB[{len(rowtab)}][8] GC_ROM_ATTR = {{")
+    for i in range(0, len(rowtab), 2):
+        defs.append("  " + ",".join("{" + ",".join(f"0x{v:02x}" for v in r) + "}" for r in rowtab[i:i + 2]) + ",")
+    defs.append("};")
+    defs.append("")
+    for fname, cname, cells, cols, rows, uniq, index, cellrows in sheets:
         out.append(f"// {fname}: {cols}x{rows} cells, {len(uniq)} distinct")
         out.append(f"#define GC_{cname}_COUNT {len(cells)}")
         out.append(f"#define GC_{cname}_COLS {cols}")
-        out.append(f"extern const uint8_t GC_{cname}_DATA[{len(uniq)}][128];")
+        out.append(f"extern const uint16_t GC_{cname}_CELLS[{len(uniq)}][16];")
         out.append(f"extern const uint8_t GC_{cname}_MAP[{len(cells)}];")
-        out.append(f"#define GC_{cname}(id) (GC_{cname}_DATA[GC_RD8(&GC_{cname}_MAP[(id)])])")
-        defs.append(f"const uint8_t GC_{cname}_DATA[{len(uniq)}][128] GC_ROM_ATTR = {{")
-        for i, c in enumerate(uniq):
-            defs.append(f" {{ // distinct {i}")
-            defs.append(c_bytes(c))
-            defs.append(" },")
+        out.append(f"#define GC_{cname}(id) (GC_{cname}_CELLS[GC_RD8(&GC_{cname}_MAP[(id)])])")
+        defs.append(f"const uint16_t GC_{cname}_CELLS[{len(uniq)}][16] GC_ROM_ATTR = {{")
+        for i, c in enumerate(cellrows):
+            defs.append("  {" + ",".join(str(v) for v in c) + f"}}, // distinct {i}")
         defs.append("};")
         defs.append(f"const uint8_t GC_{cname}_MAP[{len(cells)}] GC_ROM_ATTR = {{")
         defs.append(c_bytes(bytes(index)))

@@ -155,17 +155,17 @@ extern "C" void gc_set_depth(int percent) {
 }
 
 // --------------------------------------------------------------- drawing
-const uint8_t* sheet_cell(int sheet, int cell) {
+gc_cell sheet_cell(int sheet, int cell) {
   if (cell < 0) cell = 0;
   if (sheet == SH_CHARS) return GC_CHARS(cell < GC_CHARS_COUNT ? cell : 0);
   if (sheet == SH_ITEMS) return GC_ITEMS(cell < GC_ITEMS_COUNT ? cell : 0);
   return GC_TILES(cell < GC_TILES_COUNT ? cell : 0);
 }
 
-void blit_tile(uint16_t* out, int x, const uint8_t* tile, int transparent) {
+void blit_tile(uint16_t* out, int x, gc_cell tile, int transparent) {
   for (int r = 0; r < 16; r++) {
     uint16_t* dst = out + r * GC_W + x;
-    const uint8_t* src = tile + r * 8;
+    const uint8_t* src = GC_ROWTAB[GC_RD16(&tile[r])];
     for (int b = 0; b < 8; b++) {
       uint8_t v = GC_RD8(src + b);
       uint8_t p0 = v >> 4, p1 = v & 15;
@@ -176,11 +176,11 @@ void blit_tile(uint16_t* out, int x, const uint8_t* tile, int transparent) {
   }
 }
 
-void blit_sprite(uint16_t* out, int y0, int sx, int sy, const uint8_t* cell, int flip, const uint8_t* remap, const uint16_t* pal) {
+void blit_sprite(uint16_t* out, int y0, int sx, int sy, gc_cell cell, int flip, const uint8_t* remap, const uint16_t* pal) {
   for (int r = 0; r < 16; r++) {
     int py = sy + r - y0;
     if (py < 0 || py >= GC_STRIP_H) continue;
-    const uint8_t* src = cell + r * 8;
+    const uint8_t* src = GC_ROWTAB[GC_RD16(&cell[r])];
     for (int c = 0; c < 16; c++) {
       int px = sx + (flip ? 15 - c : c);
       if (px < 0 || px >= GC_W) continue;
