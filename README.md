@@ -8,11 +8,11 @@ bottom band shows what the hero is doing right now, the clock's IP address and t
 (or in the hours you choose) the hero goes to bed and the screen goes dark until the wake time.
 
 **Download:** every build of the `main` branch is published on the
-[Releases page](https://github.com/techconcert/GeekMagic/releases). Releases are named by number
-(GeekQuest r7, **GeekQuest r8**, ...; the number lives in the `VERSION` file) and the newest is marked
+[Releases page](https://github.com/techconcert/GeekQuest/releases). Releases are named by number
+(GeekQuest r8, **GeekQuest r10**, ...; the number lives in the `VERSION` file) and the newest is marked
 "Latest". Each release has the two firmware files, `preview.html` (the game in your browser)
 and `SHA256SUMS.txt`. The file names also carry the short commit, for example
-`SDP_GeekQuest_quest_r8-1a2b3c4.bin`.
+`SDP_GeekQuest_quest_r10-1a2b3c4.bin`.
 
 ## What the game looks like
 

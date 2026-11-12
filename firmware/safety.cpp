@@ -55,7 +55,7 @@ static const uint32_t AP_GRACE_MS = 10UL * 60 * 1000;  // AP stays up 10 min aft
 // RECOVERY-CHANGE (chunk1): CRASHES_FOR_* moved to lib/gqsafe/src/bootlogic.h
 // RECOVERY-CHANGE (chunk1): revision 2 = chunk 1 (design 8.10 rule 6); 3 = R2 (no game saving, automatic restarts on)
 // RECOVERY-CHANGE (R3-0F): revision 5 = R3 plumbing (web() accessor, webout.h, weather strike words, boot kind, spare sector probe)
-static const uint32_t GQ_RECOVERY_REV = 10;
+static const uint32_t GQ_RECOVERY_REV = 11;
 // RECOVERY-CHANGE (chunk1): timers of the restart gates
 static const uint32_t SLOW_STABLE_MS = 6UL * 3600 * 1000;   // `slow` counter cleared after 6 h of uptime
 static const uint32_t AUTO_MIN_UPTIME_MS = 30UL * 60 * 1000;
@@ -388,7 +388,7 @@ go.onclick=()=>{const x=sel;if(!x)return;go.disabled=true;f.disabled=true;p.hidd
   else{msg.className='warn';msg.textContent='Update failed: '+q.responseText+'. The current firmware is still installed.';go.disabled=false;f.disabled=false}};
  q.onerror=()=>{msg.className='warn';msg.textContent='Connection lost. If the clock does not come back within a minute, power-cycle it; the previous firmware stays installed unless the upload completed.'};
  q.send(fd)};
-const R='https://raw.githubusercontent.com/techconcert/GeekMagic/builds/',up=document.getElementById('up'),ck=document.getElementById('ck');
+const R='https://raw.githubusercontent.com/techconcert/GeekQuest/builds/',up=document.getElementById('up'),ck=document.getElementById('ck');
 ck.onclick=async()=>{up.className='';up.textContent='Checking GitHub...';
  try{const j=await(await fetch(R+'latest.json?'+Date.now(),{cache:'no-store'})).json(),cur=(await(await fetch('/info')).json()).version;
   if(cur.indexOf(j.commit)>=0){up.className='ok';up.textContent='Up to date ('+cur+').';return}

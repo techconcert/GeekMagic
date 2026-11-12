@@ -579,17 +579,18 @@ S([
 rect(c, 0, 0, 15, 0, "o")
 T[70] = c
 
-# 71 / 72 ruin floor / wall
-c = fill("a")
-rect(c, 0, 0, 15, 0, "k")
-rect(c, 0, 8, 15, 8, "k")
+# 71 / 72 ruin floor / wall. R10: the floor is warm sandstone flagstones (brown joints) so it no longer blends
+# into the grey walls
+c = fill("s")
+rect(c, 0, 0, 15, 0, "B")
+rect(c, 0, 8, 15, 8, "B")
 for x in (0, 8):
-    rect(c, x, 0, x, 7, "k")
+    rect(c, x, 0, x, 7, "B")
 for x in (4, 12):
-    rect(c, x, 8, x, 15, "k")
-rect(c, 0, 15, 15, 15, "k")
-dots(c, [(2, 2), (3, 2), (10, 3), (6, 11), (13, 12), (14, 5)], "o")
-dots(c, [(5, 5), (1, 13), (9, 10)], "g")
+    rect(c, x, 8, x, 15, "B")
+rect(c, 0, 15, 15, 15, "B")
+dots(c, [(2, 2), (3, 2), (10, 3), (6, 11), (13, 12), (14, 5)], "p")
+dots(c, [(5, 5), (1, 13), (9, 10), (12, 2)], "b")
 T[71] = c
 c = fill("a")
 brick(c, (0, 5, 10, 15), [(1, (4, 12)), (6, (8,)), (11, (4, 12))])
