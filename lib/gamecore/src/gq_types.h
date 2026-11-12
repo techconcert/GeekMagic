@@ -77,7 +77,7 @@ enum { GQ_DBG_ADD_COINS, GQ_DBG_SET_DAY, GQ_DBG_SET_WEATHER, GQ_DBG_ADD_ITEM /*a
        GQ_DBG_START_QUEST, GQ_DBG_SHOW_CARD, GQ_DBG_FORCE_ACT, GQ_DBG_BUY_GOAL, GQ_DBG_NEXT_DAY,
        GQ_DBG_FORCE_CHAT,   // arg = villager 1..8: start a chat with him now (0 = anyone)
        GQ_DBG_TALK_TURNS,   // arg = 2..4: chats play a built-in numbered script of that many turns (0 = off); tests and preview
-       GQ_DBG_DELVE };      // arg = biome 1..3 | seed << 2: start a deep level now and stand in its room 0 (R8; no hero mission yet)
+       GQ_DBG_DELVE };      // arg = biome 1..3 | seed << 2: start a deep mission now: the hero stands in room 0 and carries on from there (R8)
 
 // ---- hero presence (value of GQ_Q_HERO_PRESENCE)
 enum { GQ_PRES_NONE, GQ_PRES_SPRITE, GQ_PRES_DOOR, GQ_PRES_POSTCARD, GQ_PRES_CURTAIN };

@@ -101,6 +101,7 @@ void hero_reset(void);
 void hero_tick(Actor* h, uint32_t dt);
 void hero_update_presence(void);
 void hero_force_activity(int gq_act);
+void hero_force_delve(int biome, uint32_t seed);   // GQ_DBG_DELVE
 const char* hero_place_name(int place);
 int  hero_place_icon(int place);   // tile cell used as the place icon on the (retired) postcard
 int  hero_max_hearts(void);

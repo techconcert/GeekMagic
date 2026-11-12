@@ -3,8 +3,9 @@
 // (sleep and festivals excepted); when one trips the hero drops everything and walks home. Travel has
 // its own timeout, talking flags of villagers time out by themselves (npc.cpp).
 #include "world_priv.h"
+#include "delve.h"
 
-enum { ACT_NONE = GQ_ACT_NONE, ACT_HOME = 32, ACT_BREAKFAST = 33, ACT_FEST = 34 };
+enum { ACT_NONE = GQ_ACT_NONE, ACT_HOME = 32, ACT_BREAKFAST = 33, ACT_FEST = 34, ACT_DELVE = 35 };
 
 static const char* const PLACE_NAME[4] = {"CAVES", "RUINS", "FOREST", "TOWER"};
 static const uint8_t PLACE_ICON[4] = {T_ROCK, T_FENCE, T_WATER, T_WALL_DOOR};
@@ -24,6 +25,8 @@ static int      s_tx, s_ty;
 static GqNeed   s_need;
 static uint8_t  s_turns, s_turn, s_quest_chat;   // chat: number of turns, turn on screen, 1 = quest line first
 static char     s_qline[40];                     // the quest line of this chat
+static uint32_t s_dv_acc;                        // R8: ms since the last mission minute
+static uint8_t  s_dv_n, s_dv_t;                  // R8: decisions in this room (about 6 s each); where he walks: 0..3 door, 4 way out, 5 chest
 
 // Does the hero's own sleep apply now? Mode 0 = the built-in night, 1 = a schedule is in use (stay up), 2 = bed time.
 static int sleep_due(void) { return G.sleep_mode == 0 ? cal_is_night() : G.sleep_mode == 2; }
@@ -103,12 +106,15 @@ static void finish(Actor* h) {
 }
 
 static void go_home(Actor* h) {
+  G.s.dv_state = 0;   // every way home also ends a deep mission (R8)
   clear_talk();
   tidy(h);
   begin(h, ACT_HOME);
 }
 
 static void say_hero(const char* t, int ms) { ui_say(GQ_NPC_HERO, t, ms); }
+
+static void cat(char* buf, int cap, const char* s) { int n = str_len(buf); str_copy(buf + n, s, cap - n); }
 
 static int adjacent(const Actor* a, const Actor* b) {
   int dx = tile_x(a) - tile_x(b), dy = tile_y(a) - tile_y(b);
@@ -155,6 +161,13 @@ static int item_icon(int item) {
 
 static void gain(int item, int n) { if (econ_add_item(item, n)) g_dirty |= 1u; }
 
+// 1..3 coins from a find, at most 10 a day
+static void find_coins(Actor* h) {
+  if (s_find_day != (uint16_t)(G.s.day + 1)) { s_find_day = (uint16_t)(G.s.day + 1); s_find_n = 0; }
+  int coins = rnd_range(1, 3);
+  if (s_find_n + coins <= 10) { s_find_n = (uint8_t)(s_find_n + coins); econ_earn(coins, GQ_SRC_FIND); h->emote = I_COIN; }
+}
+
 // ---------------------------------------------------------------- scheduler
 static int gift_item(void) {
   static const uint8_t G_ITEMS[6] = {GQ_ITEM_FLOWER, GQ_ITEM_BERRY, GQ_ITEM_MUSHROOM, GQ_ITEM_HERB, GQ_ITEM_SHELL, GQ_ITEM_CROP};
@@ -162,11 +175,33 @@ static int gift_item(void) {
   return -1;
 }
 
+// ---- R8 deep missions (docs/DESIGN-R8.md 3, 5): the state is G.s.dv_*, the level a pure function of dv_seed
+static const uint8_t DV_PL[4] = {2, 2, 0, 1};   // place name of dv_state 1..3: forest, cave, ruins (0 = unused)
+
+static void delve_start(int b, uint32_t seed) {
+  G.s.dv_state = (uint8_t)b; G.s.dv_seed = seed; G.s.dv_cur = 0; G.s.dv_seen = 0; G.s.dv_min = G.s.dv_moves = 0;
+  G.s.dv_day = (uint8_t)G.s.day;
+  s_dv_n = 0;
+  gq_touch();
+}
+
+// Once a day between 09:30 and 18:30 (a 1-in-16 roll per pick so the start time varies): forest from day 2,
+// caves with Pick I, ruins with the lantern.
+static int delve_due(int m) {
+  if (m < 570 || m >= 1110 || G.s.day < 2 || G.s.hero_hearts < 2 || G.sleep_mode == 2 || cal_weather() == GQ_W_STORM ||
+      G.s.dv_day == (uint8_t)G.s.day || gc_rnd() % 16) return 0;
+  int b = rnd_range(1, 3);   // a closed door sends him to the forest
+  if (b > 1 && !world_area_open(b == 2 ? GQ_AREA_CAVE : GQ_AREA_RUINS)) b = 1;
+  delve_start(b, gc_rnd() | 1);
+  return 1;
+}
+
 static int pick_activity(void) {
   int m = cal_minute();
   if (sleep_due()) return GQ_ACT_SLEEP;
   if (cal_festival() >= 0) return ACT_FEST;
   if (m >= 360 && m < 420 && s_bf_day != (uint16_t)(G.s.day + 1)) return ACT_BREAKFAST;
+  if (delve_due(m)) return ACT_DELVE;
   int w[GQ_ACT_COUNT];
   for (int i = 0; i < GQ_ACT_COUNT; i++) w[i] = 0;
   if (m < 390)       { w[GQ_ACT_WANDER] = 2; w[GQ_ACT_CAT] = 2; }
@@ -413,11 +448,9 @@ static void fight_step(Actor* h, uint32_t dt) {
         int mon = m->id;
         m->visible = 0; m->emote = I_NONE; m->act = 1; m->talking = 0;
         m->timer = rnd_range(60000, 120000);
-        if (s_find_day != (uint16_t)(G.s.day + 1)) { s_find_day = (uint16_t)(G.s.day + 1); s_find_n = 0; }
-        int coins = rnd_range(1, 3);
-        if (s_find_n + coins <= 10) { s_find_n = (uint8_t)(s_find_n + coins); econ_earn(coins, GQ_SRC_FIND); h->emote = I_COIN; }
+        find_coins(h);
         if (mon == GQ_MON_SLIME && gc_rnd() % 10 < 4) gain(GQ_ITEM_GEL, 1);
-        gq_emit(GQ_EV_SLAIN, mon, 0);
+        gq_emit(GQ_EV_SLAIN, mon == GQ_MON_BOSS && world_area() == GQ_AREA_DELVE ? (int)GQ_MON_GHOST : mon, 0);   // a deep boss is no story boss
       }
       h->timer = 1100;
       h->phase = 7;
@@ -451,23 +484,20 @@ static void fight_step(Actor* h, uint32_t dt) {
 }
 
 // -------------------------------------------------------------------- errands
-static void errand_done(Actor* h) {
+static void errand_done(Actor* h, int place) {
   uint8_t errands = G.s.errands_today;
   uint32_t earned0 = G.s.earned_total;
   gq_emit(GQ_EV_QUEST_DONE, 0xFF, 0);   // the quest module pays (at most 3 errands a day)
-  int paid = G.s.errands_today != errands;
-  char msg[40] = "BACK FROM THE|";
-  int n = str_len(msg);
-  str_copy(msg + n, hero_place_name(2), 40 - n);
-  n = str_len(msg);
-  if (paid) {
-    str_copy(msg + n, "! +", 40 - n);
-    n = str_len(msg);
-    itoa_into(msg + n, (int)(G.s.earned_total - earned0));
-    n = str_len(msg);
-    str_copy(msg + n, " COINS", 40 - n);
+  char msg[40];
+  msg[0] = 0;
+  cat(msg, 40, "BACK FROM THE|");
+  cat(msg, 40, hero_place_name(place));
+  if (G.s.errands_today != errands) {
+    cat(msg, 40, "! +");
+    itoa_into(msg + str_len(msg), (int)(G.s.earned_total - earned0));
+    cat(msg, 40, " COINS");
   } else {
-    str_copy(msg + n, "! A FINE WALK.", 40 - n);
+    cat(msg, 40, "! A FINE WALK.");
   }
   h->dir = DIR_DOWN;
   say_hero(msg, 3000);
@@ -516,7 +546,7 @@ static void quest_step(Actor* h, uint32_t dt) {
     case 3: {
       int r = tv_step(h, dt);
       if (r < 0) { go_home(h); return; }
-      if (r > 0) { errand_done(h); h->phase = 4; }
+      if (r > 0) { errand_done(h, 2); h->phase = 4; }
       return;
     }
     case 4:
@@ -534,6 +564,96 @@ static void quest_step(Actor* h, uint32_t dt) {
     }
     default:
       if (h->timer <= 0) finish(h);
+      return;
+  }
+}
+
+// ---- the mission: a supervisor over the fight, mine, forage and wander machines (they hand back through finish()).
+// phase 0 start / resume, 1 walk to the entrance, 2 decide, 3 walk (s_dv_t), 5 wait at the chest, 6 curtain home
+static void delve_loot(Actor* h) {   // a chest: two goods of the biome, coins, a heart
+  static const uint8_t CH[4][2] = {{0, 0}, {GQ_ITEM_WOOD, GQ_ITEM_HERB}, {GQ_ITEM_STONE, GQ_ITEM_ORE}, {GQ_ITEM_ORE, GQ_ITEM_GEL}};
+  for (int i = 0; i < 2; i++) { int it = CH[G.s.dv_state & 3][i]; gain(it, 1); h->emote = (int8_t)item_icon(it); }
+  find_coins(h);
+  if (G.s.hero_hearts < hero_max_hearts()) G.s.hero_hearts++;
+  gq_touch();
+  h->pose = POSE_CHEER;
+}
+
+static void delve_step(Actor* h, uint32_t dt) {
+  static const uint8_t ENT[4] = {GQ_AREA_VILLAGE, GQ_AREA_FOREST, GQ_AREA_CAVE, GQ_AREA_RUINS};   // by dv_state
+  const DelveGraph* g = delve_gen(G.s.dv_seed);
+  int st = G.s.dv_state, r = G.s.dv_cur, x = 1, y = 1;
+  if (h->phase < 6 && (G.s.dv_min >= 60 || G.s.dv_moves >= 90 || sleep_due() || cal_festival() >= 0 || s_dv_n > 120)) {   // hard abort (120 decisions: stuck)
+    say_hero("ENOUGH FOR|TODAY. HOME!", 2500);
+    go_home(h);
+    return;
+  }
+  switch (h->phase) {
+    case 0:
+      if (r >= g->n) { G.s.dv_state = 0; finish(h); return; }   // bad save: dropped
+      if (world_area() == GQ_AREA_DELVE) { h->phase = 2; return; }
+      tv_start(ENT[st & 3], SP_TARGET_D, 0xFF);
+      h->phase = 1;
+      return;
+    case 1: {
+      int k = tv_step(h, dt);
+      if (k < 0) { G.s.dv_state = 0; finish(h); return; }
+      if (k > 0 && world_change_area(GQ_AREA_DELVE, SP_ENTRY, 1)) {
+        s_dv_n = 0;
+        h->phase = 2;
+      }
+      return;
+    }
+    case 2: {
+      if (world_transition_busy()) return;
+      int k = delve_kind(r), exit_mode = G.s.dv_min >= 48, i = s_dv_n++;
+      if (!((G.s.dv_seen >> r) & 1) && !exit_mode && i < 14) {   // first visit, about 90 s: look around
+        // in this order: fight, chest, a node, a second fight at the way out; else wander
+        if ((i == 0 || (i == 3 && (k & DK_EXIT))) && G.s.hero_hearts >= 2 && npc_monster_slot(0) >= 0) {
+          begin(h, GQ_ACT_FIGHT); h->phase = 2; return;
+        }
+        if (i == 1 && (k & DK_CHEST) && world_spot(SP_SITE, &x, &y)) { tv_start(GQ_AREA_DELVE, x, y); s_dv_t = 5; h->phase = 3; return; }
+        if (i == 2 && st != 3) {   // one node (the machines stop at counter 2 / 3)
+          begin(h, st == 2 ? GQ_ACT_MINE : GQ_ACT_FORAGE); h->phase = 2; h->counter = (uint8_t)(st == 2 ? 1 : 2); return;
+        }
+        begin(h, GQ_ACT_WANDER);
+        return;
+      }
+      int d = r == g->exit ? 4 : delve_next(r, exit_mode, G.s.dv_seen);   // 4: the way out of the last room
+      if (!world_spot(d == 4 ? (int)SP_DOOR : SP_TARGET_A + d, &x, &y)) { s_dv_n = 255; return; }   // cannot happen: abort next step
+      if (d < 4) { if (d & 1) x = d == 1 ? 14 : 0; else y = d ? 14 : 0; }   // the border tile of the door
+      tv_start(GQ_AREA_DELVE, x, y); s_dv_t = (uint8_t)d; h->phase = 3;
+      return;
+    }
+    case 3: {
+      int k = tv_step(h, dt), d = s_dv_t;
+      if (k < 0) { h->phase = 2; return; }   // 120 decisions end a mission that cannot move
+      if (k == 0) return;
+      if (d == 5) {   // at the chest (the tile above): open it
+        face(h, T.x, T.y - 1);
+        world_obj_change(T.x, T.y - 1, WT_CHEST_OPEN, 0);
+        delve_loot(h);
+        h->timer = 1300;
+        h->phase = 5;
+      } else if (d == 4) {   // done: back to the village through the curtain, paid like an errand
+        if (world_change_area(GQ_AREA_VILLAGE, st == 2 ? SP_TARGET_C : SP_TARGET_B, 1)) h->phase = 6;
+      } else if (world_change_area(GQ_AREA_DELVE, SP_TARGET_A + (d ^ 2), 1)) {   // next room: back through the same door
+        G.s.dv_seen |= 1u << r; G.s.dv_cur = (uint8_t)delve_nb(r, d); G.s.dv_moves++;
+        s_dv_n = 0;
+        gq_touch();
+        h->phase = 2;
+      }
+      return;
+    }
+    case 5:
+      if (h->timer <= 0) { tidy(h); h->phase = 2; }
+      return;
+    default:   // 6
+      if (world_transition_busy()) return;
+      errand_done(h, DV_PL[st & 3]);
+      G.s.dv_state = 0;
+      gq_touch();
+      finish(h);   // the line stays on screen; the next activity waits for it
       return;
   }
 }
@@ -586,14 +706,17 @@ static void hero_step(Actor* h, uint32_t dt) {
   switch (h->act) {
     case ACT_NONE:
       if (h->timer <= 0 && (ui_dialogue_done() || h->timer < -20000)) {
-        int a = pick_activity();
+        int a = G.s.dv_state ? (int)ACT_DELVE : pick_activity();   // a saved or running mission goes on
         s_fight_area = 0xFF;
         begin(h, a);
       }
       break;
 
     case ACT_HOME: {
-      if (h->phase == 0) { tv_start(GQ_AREA_VILLAGE, SP_ENTRY, 0xFF); h->phase = 1; break; }
+      if (h->phase == 0) {
+        if (world_area() == GQ_AREA_DELVE) world_change_area(GQ_AREA_VILLAGE, SP_ENTRY, 1);   // out of the deep through the curtain
+        tv_start(GQ_AREA_VILLAGE, SP_ENTRY, 0xFF); h->phase = 1; break;
+      }
       int r = tv_step(h, dt);
       if (r != 0) {
         if (r < 0) world_instant_area(GQ_AREA_VILLAGE, SP_ENTRY);   // last resort: he is home
@@ -1013,6 +1136,7 @@ static void hero_step(Actor* h, uint32_t dt) {
     case GQ_ACT_GIFT: chat_step(h, dt, 1); break;
     case GQ_ACT_QUEST: quest_step(h, dt); break;
     case GQ_ACT_FIGHT: fight_step(h, dt); break;
+    case ACT_DELVE: delve_step(h, dt); break;
 
     case GQ_ACT_CAT:
       switch (h->phase) {
@@ -1124,10 +1248,14 @@ static void watchdog(Actor* h, uint32_t dt) {
     if (s_act_ms > 60000) { world_instant_area(GQ_AREA_VILLAGE, SP_ENTRY); finish(h); }
     return;
   }
-  if (s_phase_ms > 120000 || (h->act != GQ_ACT_SLEEP && s_act_ms > 240000)) go_home(h);
+  if (s_phase_ms > 120000 || (h->act != GQ_ACT_SLEEP && h->act != ACT_DELVE && s_act_ms > 240000)) go_home(h);   // a mission has its own clocks
 }
 
 void hero_tick(Actor* h, uint32_t dt) {
+  if (G.s.dv_state && world_area() == GQ_AREA_DELVE && (s_dv_acc += dt) >= 60000) {   // mission minutes (saved)
+    s_dv_acc -= 60000;
+    if (G.s.dv_min < 60) { G.s.dv_min++; gq_touch(); }
+  }
   watchdog(h, dt);
   hero_step(h, dt);
 }
@@ -1164,12 +1292,13 @@ int hero_activity(void) {
   if (a == ACT_BREAKFAST) return GQ_ACT_EAT;
   if (a == ACT_FEST) return GQ_ACT_SIT;
   if (a == ACT_HOME) return GQ_ACT_NONE;
+  if (a == ACT_DELVE) return GQ_ACT_QUEST;
   return a >= 0 && a < GQ_ACT_COUNT ? a : GQ_ACT_NONE;
 }
 
 // gc_debug(GQ_DBG_FORCE_ACT): start an activity now, from a clean state at the home door.
 void hero_force_activity(int gq_act) {
-  if (gq_act < 1 || gq_act >= GQ_ACT_COUNT) return;
+  if (gq_act < 1 || (gq_act >= GQ_ACT_COUNT && gq_act != ACT_DELVE)) return;
   Actor* h = &A[A_HERO];
   clear_talk();
   h->visible = 1;
@@ -1178,6 +1307,13 @@ void hero_force_activity(int gq_act) {
   h->dir = DIR_DOWN;
   s_fight_area = 0xFF;
   begin(h, gq_act);
+}
+
+// gc_debug(GQ_DBG_DELVE): a mission now (biome 1..3), from the village: he walks to the entrance.
+void hero_force_delve(int b, uint32_t seed) {
+  if (b < 1 || b > 3) return;
+  delve_start(b, seed ? seed : 1);
+  hero_force_activity(ACT_DELVE);
 }
 
 // gc_debug(GQ_DBG_FORCE_CHAT): a chat with villager npc (0 = anyone) from a clean state.
@@ -1207,17 +1343,25 @@ static const char* const ST_GOING[GQ_ACT_COUNT] = {
 };
 static const char* const ST_AREA[GQ_AREA_COUNT] = {"VILLAGE", "FOREST", "SHORE", "CAVE", "RUINS", "HOME", "SHOP", "TAVERN"};
 
-static void st_cat(char* buf, int cap, const char* a, const char* b) {
-  int n = 0;
-  for (int i = 0; a[i] && n < cap - 1; i++) buf[n++] = a[i];
-  for (int i = 0; b && b[i] && n < cap - 1; i++) buf[n++] = b[i];
-  buf[n] = 0;
-}
+static void st_cat(char* buf, int cap, const char* a, const char* b) { buf[0] = 0; cat(buf, cap, a); cat(buf, cap, b); }
 
 void hero_status_text(char* buf, int cap) {
   const Actor* h = &A[A_HERO];
   int a = h->act, act = hero_activity();
   if (cap < 2) return;
+  if (G.s.dv_state && (a == ACT_DELVE || world_area() == GQ_AREA_DELVE)) {   
+    int in = world_area() == GQ_AREA_DELVE;
+    st_cat(buf, cap, "DEEP ", hero_place_name(DV_PL[G.s.dv_state & 3]));   // "DEEP CAVES", then "DEEP CAVES 12/24" inside
+    if (in) {
+      int c = 1;
+      for (uint32_t v = G.s.dv_seen; v; v &= v - 1) c++;
+      cat(buf, cap, " ");
+      itoa_into(buf + str_len(buf), c);
+      cat(buf, cap, "/");
+      itoa_into(buf + str_len(buf), delve_gen(G.s.dv_seed)->n);
+    }
+    return;
+  }
   if (a == ACT_HOME) { str_copy(buf, "GOING HOME", cap); return; }
   if (a == ACT_FEST) { str_copy(buf, "AT THE FESTIVAL", cap); return; }
   if (a == ACT_NONE) { str_copy(buf, "RESTING", cap); return; }

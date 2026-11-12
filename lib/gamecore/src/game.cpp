@@ -286,13 +286,7 @@ extern "C" void gc_debug(int cmd, int32_t arg) {
     case GQ_DBG_SHOW_CARD: ui_debug_show_card(arg); break;
     case GQ_DBG_FORCE_CHAT: hero_force_chat(arg); break;
     case GQ_DBG_TALK_TURNS: G.dbg_turns = (uint8_t)(arg >= 2 && arg <= 4 ? arg : 0); break;
-    case GQ_DBG_DELVE:
-      if ((arg & 3) == 0) break;
-      G.s.dv_state = (uint8_t)(arg & 3); G.s.dv_seed = (uint32_t)arg >> 2 ? (uint32_t)arg >> 2 : 1;
-      G.s.dv_cur = 0; G.s.dv_seen = 0; G.s.dv_min = G.s.dv_moves = 0;
-      gq_touch();
-      world_instant_area(GQ_AREA_DELVE, SP_ENTRY);
-      break;
+    case GQ_DBG_DELVE: hero_force_delve(arg & 3, (uint32_t)arg >> 2); break;
     default: break;
   }
 }
