@@ -3,12 +3,13 @@
 // (design 11.5; hero.cpp holds the scheduler and the activities, npc.cpp the others.)
 #include "world_priv.h"
 #include "map_data.h"
+#include "delve.h"
 
 Actor A[A_COUNT];
 
 // villager clothes: the hero body through a palette remap (heads are final-colour overlays and are
 // drawn WITHOUT a remap). palette: 0 . 1 k 2 g 3 G 4 l 5 b 6 B 7 s 8 w 9 W 10 f 11 p 12 r 13 o 14 a 15 Y
-static const uint8_t NPC_REMAP[9][16] GC_ROM_ATTR = {
+static const uint8_t NPC_REMAP[12][16] GC_ROM_ATTR = {
   {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},     // (hero)
   {0, 1, 2, 3, 4, 6, 15, 7, 8, 12, 10, 11, 12, 13, 14, 15},   // Mira: red dress, blonde
   {0, 1, 2, 3, 4, 14, 13, 7, 8, 2, 10, 11, 12, 13, 14, 15},   // Bram: green coat, white hair
@@ -18,6 +19,9 @@ static const uint8_t NPC_REMAP[9][16] GC_ROM_ATTR = {
   {0, 1, 2, 3, 4, 1, 2, 7, 8, 12, 10, 11, 12, 13, 14, 15},    // Tess
   {0, 1, 2, 3, 4, 11, 3, 7, 8, 4, 10, 11, 12, 13, 14, 15},    // Luma
   {0, 1, 2, 3, 4, 15, 13, 7, 8, 14, 10, 11, 12, 13, 14, 15},  // Wren
+  {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 6, 13, 14, 15},      // R8 monsters: beetle (crab, red -> brown)
+  {0, 1, 8, 14, 13, 5, 6, 7, 8, 9, 10, 11, 14, 13, 14, 15},   //   ooze (slime, greens -> grey/white/dark), rock crab (red -> grey)
+  {0, 1, 5, 12, 11, 5, 6, 7, 8, 9, 10, 11, 15, 13, 8, 15},    //   ember slime (greens -> red/pink/brown), night bat (grey -> dark, eyes -> yellow)
 };
 
 // ---------------------------------------------------------------- world state
@@ -184,8 +188,15 @@ static void move_actor(Actor* a, uint32_t dt) {
 static uint32_t s_rs;
 static uint32_t scat_rnd(void) { s_rs ^= s_rs << 13; s_rs ^= s_rs >> 17; s_rs ^= s_rs << 5; return s_rs; }
 
+#if !defined(ARDUINO_ARCH_ESP8266)
+unsigned g_dbg_reach;   // host tests: reach_ok() calls, for the work bound of a room build
+#endif
+
 // every spot and exit still reachable from the entry?
 static int reach_ok(void) {
+#if !defined(ARDUINO_ARCH_ESP8266)
+  g_dbg_reach++;
+#endif
   if (s_spot[SP_ENTRY] == 0xFF) return 1;
   static uint8_t seen[GC_ROWS * GC_COLS], q[GC_ROWS * GC_COLS];
   for (int i = 0; i < GC_ROWS * GC_COLS; i++) seen[i] = 0;
@@ -217,8 +228,8 @@ static int is_special(uint8_t t) {
   return 0;
 }
 
-static void scatter(int x0, int y0, int w, int h, uint8_t tile, int count, int opi) {
-  s_rs = (uint32_t)(0x9E3779B1u * (uint32_t)(s_area + 1)) ^ ((uint32_t)(opi + 1) * 0x85EBCA6Bu);
+static void scatter(int x0, int y0, int w, int h, uint8_t tile, int count, int opi, uint32_t seed) {
+  s_rs = seed ^ ((uint32_t)(opi + 1) * 0x85EBCA6Bu);
   if (!s_rs) s_rs = 1;
   recompute_walk();
   int placed = 0;
@@ -255,7 +266,8 @@ static void run_script(const MapOp* p, int season) {
     if (skip) { skip = 0; continue; }
     switch (op) {
       case MO_GROUND: case MO_OBJ: fill(op, xy, wh, tile); break;
-      case MO_SCATTER: scatter(xy >> 4, xy & 15, (wh >> 4) ? (wh >> 4) : 16, (wh & 15) ? (wh & 15) : 16, tile, arg, i); break;
+      case MO_SCATTER: scatter(xy >> 4, xy & 15, (wh >> 4) ? (wh >> 4) : 16, (wh & 15) ? (wh & 15) : 16, tile, arg, i,
+                                  (uint32_t)(0x9E3779B1u * (uint32_t)(s_area + 1))); break;
       case MO_HOUSE: {
         int x = xy >> 4, y = xy & 15;
         if (x + 2 < GC_COLS && y + 1 < GC_ROWS) {
@@ -279,6 +291,102 @@ static void run_script(const MapOp* p, int season) {
   }
 }
 
+// ---------------------------------------------------- R8: rooms of a deep level (docs/DESIGN-R8.md 2.2)
+// A room is a pure function of (G.s.dv_seed, dv_state, dv_cur, season, dv_seen bit); the global RNG is not used.
+enum { DF_WALLOBJ = 1, DF_FEATOBJ = 2, DF_DOOROBJ = 4, DF_PATH = 8, DF_THICK = 16, DF_TORCH = 32 };
+struct DvRule { uint8_t floor, wall, feat, flags; };
+static const DvRule DV_RULE[3] GC_ROM_ATTR = {
+  {T_GRASS, T_TREE, T_WATER, DF_WALLOBJ | DF_PATH},
+  {WT_CAVE_FLOOR, WT_CAVE_WALL, WT_CAVE_WALL, DF_THICK | DF_TORCH},
+  {WT_RUIN_FLOOR, WT_RUIN_WALL, WT_RUIN_PILLAR, DF_FEATOBJ | DF_DOOROBJ | DF_TORCH},
+};
+// scatter rows per biome: tile, count, flags (bits 0-3 seasons, 16 = only in a room not left yet, 32 = in every second room)
+static const uint8_t DV_SCAT[3][5][3] GC_ROM_ATTR = {
+  {{T_TREE, 14, 15}, {T_ROCK, 2, 15}, {WT_BUSH, 2, 16 | 3}, {WT_MUSHROOM, 2, 16 | 5}, {WT_HERB, 2, 16 | 7}},
+  {{WT_STALAG, 5, 15}, {T_ROCK, 2, 15}, {WT_ORE_ROCK, 3, 16 | 15}, {WT_GEM_ROCK, 1, 32 | 16 | 15}, {0, 0, 0}},
+  {{T_ROCK, 3, 15}, {WT_BARREL, 2, 15}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}},
+};
+// middle features: two rects (xy, wh) inside x 4..10, y 5..9; wh 0 = none
+static const uint8_t DV_SHAPE[6][4] GC_ROM_ATTR = {
+  {0, 0, 0, 0}, {XY(6, 6), WH(3, 3), 0, 0}, {XY(4, 5), WH(2, 2), XY(9, 8), WH(2, 2)},
+  {XY(5, 5), WH(1, 5), XY(9, 5), WH(1, 5)}, {XY(4, 7), WH(3, 1), XY(8, 7), WH(3, 1)}, {XY(5, 5), WH(1, 4), XY(5, 8), WH(4, 1)},
+};
+
+// Door (or exit marker) on side d at offset p: the wall tile is returned, the tile inside it goes to *in; n tiles
+// inward become ground (obj on the first one). thick = rows of the top wall.
+static int dv_door(int d, int p, int thick, int n, uint8_t ground, uint8_t obj, uint8_t* in) {
+  static const int8_t IX[4] = {0, -1, 0, 1}, IY[4] = {1, 0, -1, 0};
+  int x = (d & 1) ? (d == 1 ? 14 : 0) : p, y = (d & 1) ? p : (d == 2 ? 14 : 0), ix = IX[d], iy = IY[d], w = TI(x, y);
+  for (int k = 0; k < n; k++, x += ix, y += iy) {
+    g_ground[y][x] = ground;
+    g_obj[y][x] = k ? (uint8_t)T_NONE : obj;
+  }
+  int m = d == 0 ? thick : 1;
+  *in = TI(TX(w) + ix * m, TY(w) + iy * m);
+  return w;
+}
+
+static int delve_build_room(void) {
+  uint32_t seed = G.s.dv_seed ? G.s.dv_seed : 1;
+  const DelveGraph* dg = delve_gen(seed);
+  int r = G.s.dv_cur < dg->n ? G.s.dv_cur : 0;
+  int b = G.s.dv_state - 1;
+  if (b < 0 || b > 2) b = 0;
+  int season = cal_season() & 3, fresh = !((G.s.dv_seen >> r) & 1), kind = delve_kind(r);
+  const DvRule* ru = &DV_RULE[b];
+  uint8_t floor = GC_RD8(&ru->floor), wall = GC_RD8(&ru->wall), feat = GC_RD8(&ru->feat), fl = GC_RD8(&ru->flags);
+  int thick = (fl & DF_THICK) ? 2 : 1, wtype = (fl & DF_WALLOBJ) ? MO_OBJ : MO_GROUND;
+  int gap = (fl & DF_PATH) ? 3 : 1;
+  uint8_t gnd = (fl & DF_PATH) ? (uint8_t)T_PATH : floor, in;
+  fill(MO_GROUND, 0, ALL, floor);
+  fill(wtype, XY(0, 0), WH(15, 1), wall); fill(wtype, XY(0, 14), WH(15, 1), wall);
+  fill(wtype, XY(0, 1), WH(1, 13), wall); fill(wtype, XY(14, 1), WH(1, 13), wall);
+  if (fl & DF_THICK) { fill(MO_GROUND, XY(0, 1), WH(15, 1), wall); fill(MO_GROUND, XY(0, 0), WH(15, 1), WT_CAVE_WALL_TOP); }
+  s_spot[SP_ENTRY] = TI(7, 12);
+  s_rs = dvh(seed, (uint32_t)r, 4) | 1;               // the room's own xorshift stream
+  int l = dg->link[r] & 15, mk = (kind & DK_EXIT) ? ((l << 2 | l >> 2) & 15) : 0;   // mk: the way out, opposite the single door
+  for (int d = 0; d < 4; d++) {
+    int door = (l >> d) & 1, p = 4 + (int)(scat_rnd() % 7);
+    if (!(door | ((mk >> d) & 1))) continue;
+    if (door) {                                       // both rooms derive the offset from the same edge id
+      int nb = delve_nb(r, d);
+      p = 4 + (int)(dvh(seed, (uint32_t)(r < nb ? r * 4 + d : nb * 4 + (d ^ 2)), 3) % 7);
+    }
+    int w = dv_door(d, p, thick, (door || b != 2) ? (d || !(fl & DF_THICK) ? gap : 2) : 0,
+                    (door && (fl & DF_DOOROBJ)) ? wall : gnd, (door && (fl & DF_DOOROBJ)) ? (uint8_t)WT_RUIN_DOOR : (uint8_t)T_NONE, &in);
+    if (door) {
+      s_spot[SP_TARGET_A + d] = in;
+      s_exit[s_nexit].tile = (uint8_t)w; s_exit[s_nexit].area = GQ_AREA_DELVE; s_exit[s_nexit++].spot = (uint8_t)d;
+    } else {
+      s_spot[SP_DOOR] = in;
+      if (b == 2) { g_obj[TY(w)][TX(w)] = WT_STAIRS; g_obj[7][7] = WT_ALTAR; }
+      else if (b == 1) g_ground[TY(w)][TX(w)] = WT_CAVE_EXIT;
+    }
+  }
+  int sh = (int)(scat_rnd() % 6);                     // middle feature
+  for (int k = 0; k < 4; k += 2)
+    if (GC_RD8(&DV_SHAPE[sh][k + 1])) fill((fl & DF_FEATOBJ) ? MO_OBJ : MO_GROUND, GC_RD8(&DV_SHAPE[sh][k]), GC_RD8(&DV_SHAPE[sh][k + 1]), feat);
+  if (kind & DK_CHEST)                                // a chest the hero can walk up to (x 3..11, y 3..11 holds no spot)
+    for (int t = 0; t < 8; t++) {
+      int x = 3 + (int)(scat_rnd() % 9), y = 3 + (int)(scat_rnd() % 8);
+      if (g_ground[y][x] != floor || g_ground[y + 1][x] != floor || g_obj[y][x] != T_NONE || g_obj[y + 1][x] != T_NONE) continue;
+      g_obj[y][x] = fresh ? WT_CHEST : WT_CHEST_OPEN;
+      s_spot[SP_SITE] = TI(x, y + 1);
+      recompute_walk();
+      if (reach_ok()) break;
+      g_obj[y][x] = T_NONE; s_spot[SP_SITE] = 0xFF;
+    }
+  if (fl & DF_TORCH) g_obj[thick - 1][3] = g_obj[thick - 1][11] = WT_TORCH;   // x 3 and 11 never meet a door (4..10)
+  uint32_t sseed = scat_rnd();
+  for (int k = 0; k < 5; k++) {
+    const uint8_t* e = DV_SCAT[b][k];
+    uint8_t f = GC_RD8(&e[2]);
+    if (!((f >> season) & 1) || ((f & 16) && !fresh) || ((f & 32) && (sseed & 1))) continue;
+    scatter(1, 1, 13, 13, GC_RD8(&e[0]), GC_RD8(&e[1]), k, sseed >> 1);
+  }
+  return r;
+}
+
 static void apply_dyn(void) {
   for (int i = 0; i < 16; i++)
     if (s_dyn[i].timer && s_dyn[i].area == s_area) g_obj[TY(s_dyn[i].tile)][TX(s_dyn[i].tile)] = s_dyn[i].now;
@@ -287,13 +395,13 @@ static void apply_dyn(void) {
 static uint8_t anim_tile(uint8_t t);
 
 void world_build_area(int area) {
-  if (area < 0 || area >= GQ_AREA_COUNT) area = GQ_AREA_VILLAGE;
+  if (area < 0 || area > GQ_AREA_DELVE) area = GQ_AREA_VILLAGE;
   s_area = (uint8_t)area;
   for (int y = 0; y < GC_ROWS; y++)
     for (int x = 0; x < GC_COLS; x++) { g_ground[y][x] = T_GRASS; g_obj[y][x] = T_NONE; }
   for (int i = 0; i < SP_COUNT; i++) s_spot[i] = 0xFF;
   s_nexit = 0;
-  int season = cal_season() & 3;
+  int season = cal_season() & 3, salt = area * 31;
   switch (area) {
     case GQ_AREA_VILLAGE: run_script(MAP_VILLAGE, season); run_script(MAP_VILLAGE2, season); break;
     case GQ_AREA_FOREST: run_script(MAP_FOREST, season); break;
@@ -302,6 +410,7 @@ void world_build_area(int area) {
     case GQ_AREA_RUINS: run_script(MAP_RUINS, season); break;
     case GQ_AREA_HOME: run_script(MAP_HOME, season); break;
     case GQ_AREA_SHOP: run_script(MAP_SHOP, season); break;
+    case GQ_AREA_DELVE: salt += delve_build_room() * 37; break;
     default: run_script(MAP_TAVERN, season); break;
   }
   if (area == GQ_AREA_VILLAGE && cal_festival() >= 0) {   // festival decoration (non-blocking spots only)
@@ -315,7 +424,7 @@ void world_build_area(int area) {
   for (int y = 0; y < GC_ROWS; y++)
     for (int x = 0; x < GC_COLS; x++) {
       if (g_ground[y][x] != T_GRASS) continue;
-      uint32_t h = ((uint32_t)(x * 73 + y * 151 + area * 31) * 2654435761u) >> 24;
+      uint32_t h = ((uint32_t)(x * 73 + y * 151 + salt) * 2654435761u) >> 24;
       int r = (int)(h & 15);
       int fl = season == GQ_SPRING ? 4 : (season == GQ_SUMMER ? 2 : 0);
       int tu = season == GQ_SPRING ? 8 : (season == GQ_SUMMER ? 6 : 5);
@@ -387,6 +496,12 @@ int world_next_hop(int from, int to) {
 // ------------------------------------------------------- dynamic objects
 void world_obj_change(int tx, int ty, int now, int regrow_s) {
   if (tx < 0 || ty < 0 || tx >= GC_COLS || ty >= GC_ROWS) return;
+  if (s_area == GQ_AREA_DELVE) {   // generated rooms keep no timers: the change is final until the room is rebuilt
+    g_obj[ty][tx] = (uint8_t)now;
+    recompute_walk();
+    mark_rows(ty * 16, 16);
+    return;
+  }
   uint8_t t = TI(tx, ty);
   int slot = -1, lowest = 0;
   for (int i = 0; i < 16; i++) {
@@ -480,7 +595,7 @@ void world_instant_area(int area, int spot) {
 }
 
 int world_change_area(int area, int spot, int show_hero) {
-  if (s_tr.st != TR_IDLE || area < 0 || area >= GQ_AREA_COUNT) return 0;
+  if (s_tr.st != TR_IDLE || area < 0 || area > GQ_AREA_DELVE) return 0;
   s_tr.st = TR_CLOSE; s_tr.area = (uint8_t)area; s_tr.spot = (uint8_t)spot; s_tr.show = (uint8_t)show_hero; s_tr.t = 0;
   ui_curtain(1);
   return 1;
@@ -568,8 +683,8 @@ static int actor_ops(int i, Op* ops) {
         else cell = WC_MON + (a->id < 4 ? a->id : 0) * 2 + (a->anim & 1);
         fl = (a->anim >> 1) & 1;   // monsters face either way, for life
       }
-      Op body = {a->x, a->y, SH_CHARS, (uint8_t)cell, (uint8_t)fl, (uint8_t)i, 0, 0};
-      ops[n++] = body;
+      Op body = {a->x, a->y, SH_CHARS, (uint8_t)cell, (uint8_t)fl, (uint8_t)i, 0, a->kind == AK_MONSTER ? a->bob : (uint8_t)0};
+      ops[n++] = body;   // a monster's palette row (R8 recolours) is kept in bob
     }
   }
   if (a->kind == AK_HERO && a->visible && a->pose == POSE_BED) {
@@ -658,7 +773,7 @@ void world_render(int s, uint16_t* out) {
     if (o.y >= y0 + GC_STRIP_H || o.y + 16 <= y0) continue;
     uint8_t rm[16];
     const uint8_t* remap = 0;
-    if (o.remap && o.remap < 9) {
+    if (o.remap && o.remap < 12) {
       for (int k = 0; k < 16; k++) rm[k] = GC_RD8(&NPC_REMAP[o.remap][k]);
       remap = rm;
     }

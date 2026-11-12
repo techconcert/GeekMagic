@@ -60,7 +60,7 @@ void weather_tick(uint32_t dt) {
   if (dt > 250) dt = 250;
   int w = cal_weather_shown();
   int area = world_area();
-  s_outdoors = (area != GQ_AREA_CAVE && area < GQ_AREA_HOME) ? 1 : 0;
+  s_outdoors = ((area != GQ_AREA_CAVE && area < GQ_AREA_HOME) || (area == GQ_AREA_DELVE && G.s.dv_state == 1)) ? 1 : 0;
   if (s_fps_low && s_level == 0) {
     s_low_ms += (int32_t)dt;
     if (s_low_ms >= 5000) { s_level = 1; gc_mark_all_dirty(); }

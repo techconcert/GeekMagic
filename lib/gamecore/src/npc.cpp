@@ -1,5 +1,6 @@
 // Villagers with schedules, the cat, critters and monsters. (Split out of village.cpp; chunk 3.)
 #include "world_priv.h"
+#include "delve.h"
 
 #define NXY(x, y) ((uint8_t)(((x) << 4) | (y)))
 
@@ -99,8 +100,34 @@ static void spawn_villager(int npc, int tx, int ty) {
   spawn(AK_VILLAGER, npc, tx, ty, 34);
 }
 
+// R8 monsters of a deep room: three per biome, id | palette row << 4 (rows 9..11 are the recolours in world.cpp)
+static const uint8_t DV_MON[3][3] GC_ROM_ATTR = {
+  {GQ_MON_SLIME, GQ_MON_BAT, GQ_MON_CRAB | 9 << 4}, {GQ_MON_BAT, GQ_MON_SLIME | 10 << 4, GQ_MON_CRAB | 10 << 4},
+  {GQ_MON_GHOST, GQ_MON_SLIME | 11 << 4, GQ_MON_BAT | 11 << 4}};
+
+static int mon_ms(int id) { return id == GQ_MON_BAT ? 45 : (id == GQ_MON_GHOST ? 100 : (id == GQ_MON_BOSS ? 110 : 70)); }
+
+static void delve_populate(void) {
+  uint32_t seed = G.s.dv_seed ? G.s.dv_seed : 1;
+  const DelveGraph* dg = delve_gen(seed);
+  int r = G.s.dv_cur < dg->n ? G.s.dv_cur : 0, b = G.s.dv_state - 1, k = delve_kind(r);
+  if (b < 0 || b > 2) b = 0;
+  if (r == 0 || ((G.s.dv_seen >> r) & 1)) return;          // the entry room and rooms already left are quiet
+  uint32_t h = dvh(seed, (uint32_t)r, 0x30B);
+  int n = (k & DK_EXIT) ? 3 : ((k & DK_DEN) ? 4 : 2 + (int)((h >> 8) % 2)), cx = 7, cy = 7;
+  if (k & DK_EXIT) world_spot(SP_DOOR, &cx, &cy);
+  for (int i = 0; i < n; i++) {
+    int e = GC_RD8(&DV_MON[b][(h >> (i * 3)) % 3]), id = e & 15, x, y;
+    if (b == 2 && (k & DK_EXIT)) { id = i ? GQ_MON_GHOST : GQ_MON_BOSS; e = id; }   // boss and two ghosts
+    if (!free_tile(cx, cy, (k & DK_EXIT) ? 4 : 6, &x, &y)) break;
+    Actor* a = spawn(AK_MONSTER, id, x, y, mon_ms(id));
+    if (a) a->bob = (uint8_t)(e >> 4);
+  }
+}
+
 void npc_populate(void) {
   int area = world_area();
+  if (area == GQ_AREA_DELVE) { delve_populate(); return; }
   for (int n = 1; n <= 8; n++) {
     int ar, x, y, w;
     if (npc_where(n, &ar, &x, &y, &w) && ar == area) spawn_villager(n, x, y);
@@ -124,9 +151,9 @@ void npc_populate(void) {
   }
   for (int k = 0; k < nm; k++) {
     if (!free_tile(7, 7, 6, &cx, &cy)) break;
-    spawn(AK_MONSTER, mon, cx, cy, mon == GQ_MON_BAT ? 45 : (mon == GQ_MON_GHOST ? 100 : 70));
+    spawn(AK_MONSTER, mon, cx, cy, mon_ms(mon));
   }
-  if (area == GQ_AREA_RUINS && G.s.chapter == 4 && free_tile(7, 7, 4, &cx, &cy)) spawn(AK_MONSTER, GQ_MON_BOSS, cx, cy, 110);
+  if (area == GQ_AREA_RUINS && G.s.chapter == 4 && free_tile(7, 7, 4, &cx, &cy)) spawn(AK_MONSTER, GQ_MON_BOSS, cx, cy, mon_ms(GQ_MON_BOSS));
   // critters: only while there is a free slot
   int day = h >= 6 && h < 20;
   int fair = wx == GQ_W_CLEAR || wx == GQ_W_CLOUDY || wx == GQ_W_WINDY;
