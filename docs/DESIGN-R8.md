@@ -1,6 +1,6 @@
 # DESIGN-R8: generated forests, caves and dungeons ("deep" missions)
 
-Status: design only, nothing implemented. Base: main at R7, quest image 440,288 bytes.
+Status: implemented in R8 chunks 1 to 4 (see section 11 for what was built differently). Base: main at R7, quest image 440,288 bytes.
 Size gates: check_bin warns from 440 KiB (450,560), CI fails at 470 KiB (481,280), hard limit 500 KiB.
 Target for this feature: **+3.5 KB (ceiling +5 KB)**, so the image stays under the 450,560 warning line.
 
@@ -387,3 +387,25 @@ Open questions for the owner:
 2. Is "DEEP FOREST / DEEP CAVES / DEEP RUINS" acceptable naming (it reuses strings already in flash)?
 3. Should a mission be shown in the quest band/card as well (costs ~150 bytes in quest.cpp/ui.cpp), or is the
    bottom band enough?
+
+## 11. As built (chunks 1 to 4): deviations from the sections above
+
+Everything above holds unless it is listed here. The flash ceiling (gamecore text +5.5 KB over R7, measured with
+`xtensa-lx106-elf-g++ -Os` over `lib/gamecore/src/*.cpp`) forced the cut list of section 7 and a few more cuts:
+
+- Rooms: doors are fixed mid-edge (offset 7, so both rooms agree without a hash); the middle feature is one random block
+  (1..3 x 1..3, three rooms in four) instead of six shapes; the chest sits in a corner of the free ring (no search, no
+  `reach_ok`); no wall torches; no dens (2 or 3 monsters, boss room and way out: 3).
+- Dwell: counted in decisions, not seconds. Each time control returns to `ACT_DELVE` in a room not left yet it takes one
+  decision (fight, chest, a node, a second fight at the way out, else a wander of two hops), about 6 s each, 14 of them
+  (about 90 s); a room already left is passed straight through. 120 decisions in one room (a hero who cannot move) end the
+  mission. `dv_cnt` is unused (the day of the last mission, `dv_day`, is enough for one mission a day).
+- Loot: a chest gives two fixed goods per biome (forest wood and herb, cave stone and ore, dungeon ore and gel), 1 to 3
+  coins under the existing 10-a-day find cap, and one heart; no gem and no heart every 5th room.
+- Aborts: 60 minutes, 90 room changes, bed time, a festival, 120 decisions in a room. A storm does not abort (the existing
+  scheduler rules for outdoor activities stay as they are).
+- Screen: the band reads `DEEP CAVES 12/24` inside a level and `DEEP CAVES` while he walks to the entrance; there is no
+  start line, the abort line is `ENOUGH FOR|TODAY. HOME!`, the return line is the existing errand text with the place name.
+- `GQ_DBG_DELVE` starts a real mission from the village (the hero walks to the entrance), not a teleport.
+- Trigger: a 1 in 16 roll per pick between 09:30 and 18:30 (day >= 2, hearts >= 2, no storm, bed time off), biome 1..3 at
+  random, a locked cave or ruins becomes the forest.
