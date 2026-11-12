@@ -400,9 +400,9 @@ static int hud_ink(const uint16_t* a, const uint16_t* bg, int x0, int x1) {
 }
 static uint16_t hbase[GC_STRIP_PIXELS], hcur[GC_STRIP_PIXELS], hprev[GC_STRIP_PIXELS];
 
-// R5: the bar is laid out by real widths: with one digit of gold and of the focus item the weather icon starts at 61
-// (it moves right with more digits), its number 17 px later; the clock is fixed at 184..237.
-static const int ICON_MIN = 61;
+// R6: the bar is gold, wood, season on the left and temperature (right aligned, just left of the clock) plus the
+// clock on the right; the weather group never starts left of x = 100, the clock is fixed at 184..237.
+static const int ICON_MIN = 100;
 
 static void test_hud_weather() {
   gc_init(GC_SCENE_VILLAGE, 3, 0);
@@ -426,10 +426,10 @@ static void test_hud_weather() {
           hud_render(hbase, GC_WX_NONE, 0, 0);
           hud_render(hcur, wx, t10, fl);
           lo = hud_diff(hbase, hcur, &hi);
-          if (lo >= ICON_MIN) break;
+          if (lo >= 40) break;
         }
-        if (lo < ICON_MIN) std::printf("wx %d fl %d t %d lo %d hi %d\n", wx, fl, t, lo, hi);
-        CHECK(lo >= ICON_MIN);
+        if (lo < 40) std::printf("wx %d fl %d t %d lo %d hi %d\n", wx, fl, t, lo, hi);
+        CHECK(lo >= 40);
         for (int y = 0; y < GC_STRIP_H; y++)
           for (int x = CLK; x < GC_W; x++) CHECK(hbase[y * GC_W + x] == hcur[y * GC_W + x]);
       }
@@ -445,28 +445,28 @@ static void test_hud_weather() {
       hud_render(hprev, GQ_W_CLOUDY, 70, 0);
       hud_render(hcur, GQ_W_CLOUDY, t * 10, 0);
       lo = hud_diff(hprev, hcur, &hi);
-      if (lo == 999 || (lo >= (ICON_MIN + 17) && hi < CLK)) break;
+      if (lo == 999 || (lo >= ICON_MIN && hi < CLK)) break;
     }
-    if (lo != 999) CHECK(lo >= (ICON_MIN + 17) && hi < CLK);
+    if (lo != 999) CHECK(lo >= ICON_MIN && hi < CLK);
   }
   hud_render(hprev, GQ_W_CLOUDY, 999, 0);
   hud_render(hcur, GQ_W_CLOUDY, -999, 0);
-  { int hi, lo = hud_diff(hprev, hcur, &hi); CHECK(lo >= (ICON_MIN + 17) && hi < CLK); }
+  { int hi, lo = hud_diff(hprev, hcur, &hi); CHECK(lo >= ICON_MIN && hi < CLK); }
   // the unit letter changes only inside 154..158
   hud_render(hprev, GQ_W_CLEAR, 230, 0);
   hud_render(hcur, GQ_W_CLEAR, 230, GC_WXF_FAHRENHEIT);
-  { int hi, lo = hud_diff(hprev, hcur, &hi); CHECK(lo >= (ICON_MIN + 17) && hi < CLK); }
+  { int hi, lo = hud_diff(hprev, hcur, &hi); CHECK(lo >= ICON_MIN && hi < CLK); }
   // temperature, unit, season block and clock are all present, with gaps 159..162 and 174..177 between them
   hud_render(hbase, GC_WX_NONE, 0, 0);               // fresh base: time moves between renders in the integrated game
   hud_render(hcur, GQ_W_CLEAR, 230, 0);
-  CHECK(hud_ink(hcur, hbase, ICON_MIN + 17, CLK - 1) > 28);
+  CHECK(hud_ink(hcur, hbase, ICON_MIN, CLK - 1) > 28);
   hud_render(hbase, GC_WX_NONE, 0, 0);
   hud_render(hprev, GC_WX_NONE, 0, 0);
   CHECK(hud_ink(hprev, hbase, 0, 239) == 0);
   // stale is drawn grey, fresh white: same shape, different colour, only in the temperature area
   hud_render(hprev, GQ_W_RAIN, 230, 0);
   hud_render(hcur, GQ_W_RAIN, 230, GC_WXF_STALE);
-  { int hi, lo = hud_diff(hprev, hcur, &hi); CHECK(lo >= (ICON_MIN + 17) && hi < CLK); }
+  { int hi, lo = hud_diff(hprev, hcur, &hi); CHECK(lo >= ICON_MIN && hi < CLK); }
   // the moon replaces the sun for CLEAR at night only
   hud_render(hprev, GQ_W_CLEAR, 100, 0);
   hud_render(hcur, GQ_W_CLEAR, 100, GC_WXF_NIGHT);
@@ -479,7 +479,7 @@ static void test_hud_weather() {
   gc_set_net(GC_NET_OFFLINE);
   hud_render(hcur, GQ_W_RAIN, 100, 0);
   gc_set_net(GC_NET_ONLINE);
-  { int hi, lo = hud_diff(hprev, hcur, &hi); CHECK(lo >= (ICON_MIN + 17) && hi < CLK); }
+  { int hi, lo = hud_diff(hprev, hcur, &hi); CHECK(lo >= 40 && hi < ICON_MIN); }
   // leaving live mode restores the base render
   hud_render(hcur, GQ_W_RAIN, 230, 0);
   hud_render(hcur, GC_WX_NONE, 0, 0);

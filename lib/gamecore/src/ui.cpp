@@ -556,34 +556,42 @@ static void draw_hud(uint16_t* out, int y0) {
   fmt_uint(buf, G.s.inv[fi]);
   draw_text(out, y0, x + 17, 1, buf, g_ui[P_WHITE], 2, 0);
   x += 17 + str_len(buf) * 12 + 1;
-  // weather icon, temperature, season and day of season
+  // R6 order: left gold, wood, spacer, season; right (from the right) clock, spacer, temperature with its icon.
+  // The spacers are 10 px when there is room and shrink to 2 px when gold, wood and temperature are all at their widest.
   int w = cal_weather_shown();
   if (w < 0 || w >= GQ_W_COUNT) w = 0;
   int tv = 0, tf = 0;
   int live = cal_temp(&tv, &tf);
-  int icon = 40 + w;
-  if (live && w == GQ_W_CLEAR && (G.live_flags & GC_WXF_NIGHT)) icon = 47;   // moon
-  blit_sprite(out, y0, x, 0, GC_ITEMS(icon), 0, 0, g_ui);
-  int sx = x + 20;                                  // x of the season block
+  char tb[5];
+  int tn = 0, rw = 0;
   if (live) {
-    // temperature: scale 2, only as wide as it is (two characters usually, three at 100 or above or below -9), then the
-    // degree mark and the unit
     if (tv < -99) tv = -99;
     if (tv > 199) tv = 199;
-    char tb[5];
-    int n = 0;
-    if (tv < 0) { tb[n++] = '-'; tv = -tv; }
-    fmt_uint(tb + n, (uint32_t)tv);
+    if (tv < 0) { tb[tn++] = '-'; tv = -tv; }
+    fmt_uint(tb + tn, (uint32_t)tv);
+    tn = str_len(tb);
+    rw = 17 + tn * 12 + 1 + 8;                      // icon, number, degree mark, unit letter
+  }
+  const int CLK_X = GC_W - 54 - 2;
+  const int sw = live ? 24 : 36;                    // season block width (scale 2 live, 3 simulated)
+  int sp = (CLK_X - x - sw - rw) / 2;               // x is the end of the wood count here
+  if (sp > 10) sp = 10;
+  if (sp < 2) sp = 2;
+  const int sx = x + sp;                            // x of the season block
+  if (live) {
+    const int ix = CLK_X - sp - rw;                 // x of the weather icon
+    int icon = 40 + w;
+    if (w == GQ_W_CLEAR && (G.live_flags & GC_WXF_NIGHT)) icon = 47;   // moon
+    blit_sprite(out, y0, ix, 0, GC_ITEMS(icon), 0, 0, g_ui);
     uint16_t tc = (G.live_flags & GC_WXF_STALE) ? g_ui[P_GREY] : g_ui[P_WHITE];
-    const int tx = x + 17;
+    const int tx = ix + 17;
     draw_text(out, y0, tx, 1, tb, tc, 2, 0);
-    const int dx = tx + str_len(tb) * 12 + 1;       // 3x3 hollow degree square
+    const int dx = tx + tn * 12 + 1;                // 3x3 hollow degree square
     fill_rect(out, y0, dx, 1, 3, 1, tc);
     fill_rect(out, y0, dx, 3, 3, 1, tc);
     fill_rect(out, y0, dx, 2, 1, 1, tc);
     fill_rect(out, y0, dx + 2, 2, 1, 1, tc);
     draw_text(out, y0, dx, 8, tf ? "F" : "C", tc, 1, 0);
-    sx = dx + 8;
   }
   int se = cal_season() & 3;
   if (live && G.net == GC_NET_OFFLINE) {

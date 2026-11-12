@@ -55,7 +55,7 @@ static const uint32_t AP_GRACE_MS = 10UL * 60 * 1000;  // AP stays up 10 min aft
 // RECOVERY-CHANGE (chunk1): CRASHES_FOR_* moved to lib/gqsafe/src/bootlogic.h
 // RECOVERY-CHANGE (chunk1): revision 2 = chunk 1 (design 8.10 rule 6); 3 = R2 (no game saving, automatic restarts on)
 // RECOVERY-CHANGE (R3-0F): revision 5 = R3 plumbing (web() accessor, webout.h, weather strike words, boot kind, spare sector probe)
-static const uint32_t GQ_RECOVERY_REV = 8;
+static const uint32_t GQ_RECOVERY_REV = 9;
 // RECOVERY-CHANGE (chunk1): timers of the restart gates
 static const uint32_t SLOW_STABLE_MS = 6UL * 3600 * 1000;   // `slow` counter cleared after 6 h of uptime
 static const uint32_t AUTO_MIN_UPTIME_MS = 30UL * 60 * 1000;
@@ -546,12 +546,12 @@ static void handleRoot() {
 
   // ---- game settings (R5: brightness, colour depth, time zone, maintenance restart and the display test moved to /config)
   const GqSettings& st = prefs::settings();
-  o.f(PSTR("<div class='box'><form method='post' action='/settings' style='display:block'><b>Game settings</b><input type='hidden' name='f' value='1'>"
+  o.f(PSTR("<div class='box'><form method='post' action='/settings' style='display:block'><b>Game settings</b><br><input type='hidden' name='f' value='1'>"
            "Info card every (minutes, 0 = off)<input name='card' value='%u'>"), (unsigned)st.card_period);
   o.f(PSTR("<label><input type='checkbox' name='night' value='1'%s> Quiet at night (hides info cards from %02u:%02u - %02u:%02u)</label>"),
       (st.flags & GQS_FLAG_NIGHT) ? " checked" : "", (unsigned)(GC_NIGHT_START_MIN / 60), (unsigned)(GC_NIGHT_START_MIN % 60),
       (unsigned)(GC_NIGHT_END_MIN / 60), (unsigned)(GC_NIGHT_END_MIN % 60));
-  o.p(PSTR("<button>Apply</button> <small>Saved permanently: survives power cuts and updates.</small></form>"
+  o.p(PSTR("<br><button>Apply</button> <small>Saved permanently: survives power cuts and updates.</small></form>"
            "<form method='post' action='/reset_settings' onsubmit=\"return confirm('Put the game settings (info card interval, quiet at night) back to defaults?')\"><button>Reset game settings</button></form></div>"
            "<form method='post' action='/reboot'><button>Restart</button></form> "
            "<form method='post' action='/safemode'><button>Restart in safe mode</button></form>"));
