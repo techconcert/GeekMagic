@@ -141,7 +141,7 @@ static void test_determinism() {
   // golden hashes: a saved mission's level must not change silently
   uint32_t g1 = build_hash(1, 1, 0), g2 = build_hash(4242, 2, 7, 0, 7), g3 = build_hash(99999, 3, delve_gen(99999)->exit, 0, 15);
   std::printf("golden %08x %08x %08x\n", g1, g2, g3);
-  static const uint32_t GOLD[3] = {0xe64168deu, 0x51099ac5u, 0x943b188eu};
+  static const uint32_t GOLD[3] = {0xbbc29668u, 0xd6af57d0u, 0x20ec6071u};
   CHECK(g1 == GOLD[0] && g2 == GOLD[1] && g3 == GOLD[2]);
 }
 
@@ -265,6 +265,14 @@ static void check_actors(int where) {
   CHECK(n <= 5);
 }
 
+// R8 chunk 2 behaviour of GQ_DBG_DELVE (stand in room 0 of a level at once); since chunk 3 the real one starts a mission
+// that walks to the entrance, so the room tests set the state and teleport themselves.
+static void dbg_delve(int arg) {
+  G.s.dv_state = (uint8_t)(arg & 3); G.s.dv_seed = (uint32_t)arg >> 2 ? (uint32_t)arg >> 2 : 1;
+  G.s.dv_cur = 0; G.s.dv_seen = 0; G.s.dv_min = G.s.dv_moves = 0;
+  world_instant_area(GQ_AREA_DELVE, SP_ENTRY);
+}
+
 static void test_actors() {
   sim_start(7);
   gc_set_date(2026, 3, 3, 2, 1000);
@@ -273,7 +281,7 @@ static void test_actors() {
   for (int i = 0; i < 2000; i++) {
     uint32_t seed = 1 + (uint32_t)i * 7919u;
     int biome = 1 + i % 3;
-    gc_debug(GQ_DBG_DELVE, biome | (int)(seed << 2));
+    dbg_delve(biome | (int)(seed << 2));
     CHECK(world_area() == GQ_AREA_DELVE && G.s.dv_state == biome && G.s.dv_cur == 0);
     // room 0 is quiet; then jump through rooms directly
     const DelveGraph* g = delve_gen(seed);
@@ -290,7 +298,7 @@ static void test_actors() {
       }
     if ((i & 15) == 0) {
       for (int t = 0; t < 200; t++) { sim_step(); if (world_area() != GQ_AREA_DELVE) break; check_actors(1); }
-      if (world_area() != GQ_AREA_DELVE) { gc_debug(GQ_DBG_DELVE, 1 | (int)(1u << 2)); }
+      if (world_area() != GQ_AREA_DELVE) { dbg_delve(1 | (int)(1u << 2)); }
     }
     rooms++;
   }
@@ -298,13 +306,13 @@ static void test_actors() {
   std::printf("actors: %ld rooms, %d monsters, recolour rows 9/10/11: %d/%d/%d\n", rooms, monsters, rows_seen[9], rows_seen[10], rows_seen[11]);
   // render one room of each biome (guards against overruns in the remapped sprite path)
   for (int b = 1; b <= 3; b++) {
-    gc_debug(GQ_DBG_DELVE, b | (int)(12345u << 2));
+    dbg_delve(b | (int)(12345u << 2));
     G.s.dv_cur = (uint8_t)delve_gen(12345)->exit;
     world_instant_area(GQ_AREA_DELVE, SP_ENTRY);
     for (int s = 0; s < GC_ROWS; s++) gqt::render_strip_guarded(s);
   }
   // an object change in the delve area is final and leaves nothing behind in the next room
-  gc_debug(GQ_DBG_DELVE, 2 | (int)(5u << 2));
+  dbg_delve(2 | (int)(5u << 2));
   world_obj_change(7, 7, WT_CHEST_OPEN, 100);
   CHECK(g_obj[7][7] == WT_CHEST_OPEN);
   uint32_t h = build_hash(5, 2, 1);
@@ -335,7 +343,7 @@ static void test_save_fields() {
   CHECK(s.dv_state == 0 && s.dv_seed == 0);
   // export, import into a fresh core: same fields, and the level is rebuilt from them
   sim_start(11);
-  gc_debug(GQ_DBG_DELVE, 3 | (int)(31337u << 2));
+  dbg_delve(3 | (int)(31337u << 2));
   G.s.dv_cur = 5; G.s.dv_seen = 0x1F; G.s.dv_min = 17; G.s.dv_moves = 9; G.s.dv_day = 3; G.s.dv_cnt = 1;
   uint8_t buf[GC_SAVE_BYTES];
   CHECK(gc_save_export(buf, sizeof buf) == GC_SAVE_BYTES);

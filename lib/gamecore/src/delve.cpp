@@ -104,7 +104,6 @@ int delve_kind(int r) {
   else if (r == 0) k = DK_ENTRY;
   else {
     if (!(l & (l - 1)) || dvh(g.seed, (uint32_t)r, 1) % 5 == 0) k = DK_CHEST;
-    if (dvh(g.seed, (uint32_t)r, 2) % 8 == 0) k |= DK_DEN;
   }
   return k;
 }

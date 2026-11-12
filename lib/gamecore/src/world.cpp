@@ -293,12 +293,12 @@ static void run_script(const MapOp* p, int season) {
 
 // ---------------------------------------------------- R8: rooms of a deep level (docs/DESIGN-R8.md 2.2)
 // A room is a pure function of (G.s.dv_seed, dv_state, dv_cur, season, dv_seen bit); the global RNG is not used.
-enum { DF_WALLOBJ = 1, DF_FEATOBJ = 2, DF_DOOROBJ = 4, DF_PATH = 8, DF_THICK = 16, DF_TORCH = 32 };
+enum { DF_WALLOBJ = 1, DF_FEATOBJ = 2, DF_DOOROBJ = 4, DF_PATH = 8, DF_THICK = 16 };
 struct DvRule { uint8_t floor, wall, feat, flags; };
 static const DvRule DV_RULE[3] GC_ROM_ATTR = {
   {T_GRASS, T_TREE, T_WATER, DF_WALLOBJ | DF_PATH},
-  {WT_CAVE_FLOOR, WT_CAVE_WALL, WT_CAVE_WALL, DF_THICK | DF_TORCH},
-  {WT_RUIN_FLOOR, WT_RUIN_WALL, WT_RUIN_PILLAR, DF_FEATOBJ | DF_DOOROBJ | DF_TORCH},
+  {WT_CAVE_FLOOR, WT_CAVE_WALL, WT_CAVE_WALL, DF_THICK},
+  {WT_RUIN_FLOOR, WT_RUIN_WALL, WT_RUIN_PILLAR, DF_FEATOBJ | DF_DOOROBJ},
 };
 // scatter rows per biome: tile, count, flags (bits 0-3 seasons, 16 = only in a room not left yet, 32 = in every second room)
 static const uint8_t DV_SCAT[3][5][3] GC_ROM_ATTR = {
@@ -306,12 +306,6 @@ static const uint8_t DV_SCAT[3][5][3] GC_ROM_ATTR = {
   {{WT_STALAG, 5, 15}, {T_ROCK, 2, 15}, {WT_ORE_ROCK, 3, 16 | 15}, {WT_GEM_ROCK, 1, 32 | 16 | 15}, {0, 0, 0}},
   {{T_ROCK, 3, 15}, {WT_BARREL, 2, 15}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}},
 };
-// middle features: two rects (xy, wh) inside x 4..10, y 5..9; wh 0 = none
-static const uint8_t DV_SHAPE[6][4] GC_ROM_ATTR = {
-  {0, 0, 0, 0}, {XY(6, 6), WH(3, 3), 0, 0}, {XY(4, 5), WH(2, 2), XY(9, 8), WH(2, 2)},
-  {XY(5, 5), WH(1, 5), XY(9, 5), WH(1, 5)}, {XY(4, 7), WH(3, 1), XY(8, 7), WH(3, 1)}, {XY(5, 5), WH(1, 4), XY(5, 8), WH(4, 1)},
-};
-
 // Door (or exit marker) on side d at offset p: the wall tile is returned, the tile inside it goes to *in; n tiles
 // inward become ground (obj on the first one). thick = rows of the top wall.
 static int dv_door(int d, int p, int thick, int n, uint8_t ground, uint8_t obj, uint8_t* in) {
@@ -346,12 +340,8 @@ static int delve_build_room(void) {
   s_rs = dvh(seed, (uint32_t)r, 4) | 1;               // the room's own xorshift stream
   int l = dg->link[r] & 15, mk = (kind & DK_EXIT) ? ((l << 2 | l >> 2) & 15) : 0;   // mk: the way out, opposite the single door
   for (int d = 0; d < 4; d++) {
-    int door = (l >> d) & 1, p = 4 + (int)(scat_rnd() % 7);
+    int door = (l >> d) & 1, p = 7;                   // doors sit mid-edge, so both rooms agree (cut list of the design)
     if (!(door | ((mk >> d) & 1))) continue;
-    if (door) {                                       // both rooms derive the offset from the same edge id
-      int nb = delve_nb(r, d);
-      p = 4 + (int)(dvh(seed, (uint32_t)(r < nb ? r * 4 + d : nb * 4 + (d ^ 2)), 3) % 7);
-    }
     int w = dv_door(d, p, thick, (door || b != 2) ? (d || !(fl & DF_THICK) ? gap : 2) : 0,
                     (door && (fl & DF_DOOROBJ)) ? wall : gnd, (door && (fl & DF_DOOROBJ)) ? (uint8_t)WT_RUIN_DOOR : (uint8_t)T_NONE, &in);
     if (door) {
@@ -363,20 +353,14 @@ static int delve_build_room(void) {
       else if (b == 1) g_ground[TY(w)][TX(w)] = WT_CAVE_EXIT;
     }
   }
-  int sh = (int)(scat_rnd() % 6);                     // middle feature
-  for (int k = 0; k < 4; k += 2)
-    if (GC_RD8(&DV_SHAPE[sh][k + 1])) fill((fl & DF_FEATOBJ) ? MO_OBJ : MO_GROUND, GC_RD8(&DV_SHAPE[sh][k]), GC_RD8(&DV_SHAPE[sh][k + 1]), feat);
-  if (kind & DK_CHEST)                                // a chest the hero can walk up to (x 3..11, y 3..11 holds no spot)
-    for (int t = 0; t < 8; t++) {
-      int x = 3 + (int)(scat_rnd() % 9), y = 3 + (int)(scat_rnd() % 8);
-      if (g_ground[y][x] != floor || g_ground[y + 1][x] != floor || g_obj[y][x] != T_NONE || g_obj[y + 1][x] != T_NONE) continue;
-      g_obj[y][x] = fresh ? WT_CHEST : WT_CHEST_OPEN;
-      s_spot[SP_SITE] = TI(x, y + 1);
-      recompute_walk();
-      if (reach_ok()) break;
-      g_obj[y][x] = T_NONE; s_spot[SP_SITE] = 0xFF;
-    }
-  if (fl & DF_TORCH) g_obj[thick - 1][3] = g_obj[thick - 1][11] = WT_TORCH;   // x 3 and 11 never meet a door (4..10)
+  uint32_t hs = scat_rnd();                            // middle feature: one block inside x 4..10, y 5..9 (or none)
+  int bw = 1 + (int)(hs >> 4) % 3, bh = 1 + (int)(hs >> 6) % 3;
+  if (hs & 3) fill((fl & DF_FEATOBJ) ? MO_OBJ : MO_GROUND, XY(4 + (int)(hs >> 8) % (8 - bw), 5 + (int)(hs >> 12) % (6 - bh)), WH(bw, bh), feat);
+  if (kind & DK_CHEST) {                              // a chest in a corner of the ring (doors are mid-edge): always reachable
+    int x = (hs & 4) ? 12 : 2, y = (hs & 8) ? 10 : 3;
+    g_obj[y][x] = fresh ? WT_CHEST : WT_CHEST_OPEN;
+    s_spot[SP_SITE] = TI(x, y + 1);
+  }
   uint32_t sseed = scat_rnd();
   for (int k = 0; k < 5; k++) {
     const uint8_t* e = DV_SCAT[b][k];

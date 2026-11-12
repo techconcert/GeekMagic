@@ -114,7 +114,7 @@ static void delve_populate(void) {
   if (b < 0 || b > 2) b = 0;
   if (r == 0 || ((G.s.dv_seen >> r) & 1)) return;          // the entry room and rooms already left are quiet
   uint32_t h = dvh(seed, (uint32_t)r, 0x30B);
-  int n = (k & DK_EXIT) ? 3 : ((k & DK_DEN) ? 4 : 2 + (int)((h >> 8) % 2)), cx = 7, cy = 7;
+  int n = (k & DK_EXIT) ? 3 : 2 + (int)((h >> 8) % 2), cx = 7, cy = 7;
   if (k & DK_EXIT) world_spot(SP_DOOR, &cx, &cy);
   for (int i = 0; i < n; i++) {
     int e = GC_RD8(&DV_MON[b][(h >> (i * 3)) % 3]), id = e & 15, x, y;

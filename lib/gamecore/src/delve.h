@@ -12,7 +12,7 @@ struct DelveGraph {          // 68 bytes of RAM
   uint8_t  link[DELVE_MAX];  // bits 0-3: doors N,E,S,W; bits 4-5: direction of the next room toward the exit
 };
 
-enum { DK_EXIT = 1, DK_CHEST = 2, DK_DEN = 4, DK_ENTRY = 8 };   // delve_kind() bits
+enum { DK_EXIT = 1, DK_CHEST = 2, DK_ENTRY = 8 };   // delve_kind() bits
 
 uint32_t dv_hash(uint32_t x);                       // stateless 32-bit mixer
 uint32_t dvh(uint32_t seed, uint32_t a, uint32_t salt);   // dv_hash(seed + a * golden + salt)
