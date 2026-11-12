@@ -72,7 +72,6 @@ static void updateStatus() {
 }
 
 void setup() {
-  Serial.begin(115200);
   safety::begin();                       // 1. WiFi, rescue hotspot, update page
   safety::stage(1);
   store::begin(safety::safeMode());      // RECOVERY-CHANGE (R5): newest saved record from flash (read only)

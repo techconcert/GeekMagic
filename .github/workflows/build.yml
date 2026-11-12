@@ -171,6 +171,9 @@ jobs:
           ls firmware/*.bin | sort | sed 's|firmware/||' > firmware/INDEX.txt
           echo "Flash only the files listed here. Files in firmware/obsolete are old." >> firmware/INDEX.txt
           printf "Latest build: %s\nCommit: %s\n" "$(date -u +%FT%TZ)" "${{ github.sha }}" > LATEST.txt
+          # R7: the update page in the owner's browser reads this file to offer "new version available"
+          QBIN=$(ls firmware/SDP_GeekQuest_quest_*.bin | head -1)
+          printf '{"version":"%s","commit":"%s","bin":"%s"}\n' "$(tr -d ' \r\n' < ../VERSION)" "$(echo "${{ github.sha }}" | cut -c1-7)" "$QBIN" > latest.json
           git add -A
           git commit -m "Build ${{ github.sha }}" || echo "nothing to commit"
           git push origin builds
@@ -190,6 +193,8 @@ jobs:
           cp out/GeekQuest-preview/index.html rel/preview.html
           (cd rel && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt)
           NOTES="GeekQuest $REL, build $SHORT (commit ${{ github.sha }}).
+
+          $(cat RELEASE-NOTES.md)
 
           Flash SDP_GeekQuest_quest_*.bin (the game) on the clock's update page (http://<clock IP>/update, or http://192.168.4.1/update on the GEEKQUEST-XXXX rescue network). SDP_GeekQuest_test_*.bin is the display test build. Check the SHA256 sums in SHA256SUMS.txt. Read docs/RECOVERY.md before installing."
           # A later push of the same release number replaces the release, so the page always holds the newest files.

@@ -62,6 +62,11 @@ Open `http://<clock IP>/`. The status page shows firmware, WiFi, network health,
 uptime. **Update firmware** and **Clock settings** are buttons in the first tile, **WiFi setup** is
 in the Network tile.
 
+**Update firmware** (`/update`): choose a `.bin` by hand, or press **Check for a new version**: your
+browser (not the clock) asks GitHub for `latest.json` on the `builds` branch, tells you if a newer
+build exists, and **Download it** loads the file into the page for you; you then press **Upload and
+install**. The clock itself never talks to GitHub. The same checks run on the file as for a manual upload.
+
 **Clock settings** (`/config`):
 
 - **Weather:** search a city (foreign places work), or type latitude and longitude. Celsius is the

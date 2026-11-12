@@ -55,7 +55,7 @@ static const uint32_t AP_GRACE_MS = 10UL * 60 * 1000;  // AP stays up 10 min aft
 // RECOVERY-CHANGE (chunk1): CRASHES_FOR_* moved to lib/gqsafe/src/bootlogic.h
 // RECOVERY-CHANGE (chunk1): revision 2 = chunk 1 (design 8.10 rule 6); 3 = R2 (no game saving, automatic restarts on)
 // RECOVERY-CHANGE (R3-0F): revision 5 = R3 plumbing (web() accessor, webout.h, weather strike words, boot kind, spare sector probe)
-static const uint32_t GQ_RECOVERY_REV = 9;
+static const uint32_t GQ_RECOVERY_REV = 10;
 // RECOVERY-CHANGE (chunk1): timers of the restart gates
 static const uint32_t SLOW_STABLE_MS = 6UL * 3600 * 1000;   // `slow` counter cleared after 6 h of uptime
 static const uint32_t AUTO_MIN_UPTIME_MS = 30UL * 60 * 1000;
@@ -265,8 +265,6 @@ void requestRestart(RestartReason why) {
   if (isAuto(why) && !GQ_AUTO_RESTART) {       // switched off in this build: log only
     uint8_t i = why == RR_WIFI ? 0 : (why == RR_HEAP ? 1 : 2);
     s_loggedAuto[i]++;
-    Serial.print(F("safety: automatic restart not enabled in this build, would restart: "));
-    Serial.println(restartName(why));
     return;
   }
   if (s_pending == RR_NONE || !isAuto(why)) s_pending = why;   // a user request wins over an automatic one
@@ -360,7 +358,8 @@ static const char PAGE_UPDATE_A[] PROGMEM = R"HTML(<h2>Firmware update</h2>
 <div class="box"><p>Choose a firmware <b>.bin</b>. This page accepts GeekQuest builds and the original
 SDPro stock firmware. The image is checked before anything is replaced; a failed upload leaves the
 current firmware running. Keep the clock powered for 60 seconds after it says Installed.</p>
-<input id="f" type="file" accept=".bin"><p id="chk"></p><p id="crc"></p>)HTML";
+<input id="f" type="file" accept=".bin"><p id="chk"></p><p id="crc"></p>
+<p><button id="ck" type="button">Check for a new version</button> <span id="up"></span></p>)HTML";
 #if GQ_STRICT_UPLOAD
 static const char PAGE_UPDATE_FORCE[] PROGMEM = R"HTML(<p><label><input type="checkbox" id="force"> Install anyway (skip the check that the file contains the GeekQuest update page)</label></p>)HTML";
 #endif
@@ -371,7 +370,8 @@ const f=document.getElementById('f'),go=document.getElementById('go'),chk=docume
 let free=0,crc='',n=0;fetch('/info').then(r=>r.json()).then(j=>{free=j.free_ota_bytes});
 function crc32(b){let c=-1;for(let i=0;i<b.length;i++){c^=b[i];for(let k=0;k<8;k++)c=(c>>>1)^(0xEDB88320&-(c&1))}return((c^-1)>>>0).toString(16).padStart(8,'0')}
 function has(b){const m=Array.from('GQ-OTA-'+'PAGE-v1',c=>c.charCodeAt(0));o:for(let i=0;i+m.length<=b.length;i++){if(b[i]!==m[0])continue;for(let j=1;j<m.length;j++)if(b[i+j]!==m[j])continue o;return true}return false}
-f.onchange=()=>{go.disabled=true;cr.textContent='';const x=f.files[0];if(!x)return;
+let sel=null;f.onchange=()=>pick(f.files[0]);
+function pick(x){go.disabled=true;cr.textContent='';sel=x;if(!x)return;
  const rd=new FileReader();rd.onload=()=>{const b=new Uint8Array(rd.result);let e=[],w=[];n=b.length;crc=crc32(b);
   if(b[0]!==0xE9)e.push('not an ESP8266 firmware image (first byte is not 0xE9)');
   else if((b[3]>>4)!==4)e.push('image is not built for 4MB flash');
@@ -380,14 +380,24 @@ f.onchange=()=>{go.disabled=true;cr.textContent='';const x=f.files[0];if(!x)retu
   cr.textContent='CRC32 '+crc+', '+x.size+' bytes';
   if(e.length){chk.className='warn';chk.textContent='Cannot install: '+e.join('; ')}
   else{chk.className=w.length?'warn':'ok';chk.textContent=(w.length?'Warning: '+w.join('; ')+'. ':'Looks good: ')+x.name+', '+x.size+' bytes.';go.disabled=false}};
- rd.readAsArrayBuffer(x)};
-go.onclick=()=>{const x=f.files[0];if(!x)return;go.disabled=true;f.disabled=true;p.hidden=false;msg.textContent='Uploading... do not unplug the clock.';
+ rd.readAsArrayBuffer(x)}
+go.onclick=()=>{const x=sel;if(!x)return;go.disabled=true;f.disabled=true;p.hidden=false;msg.textContent='Uploading... do not unplug the clock.';
  const fc=document.getElementById('force'),fd=new FormData();fd.append('firmware',x,x.name);const q=new XMLHttpRequest();q.open('POST','/update?crc='+crc+'&size='+n+'&force='+(fc&&fc.checked?1:0));
  q.upload.onprogress=e=>{if(e.lengthComputable)p.value=Math.round(e.loaded*100/e.total)};
  q.onload=()=>{if(q.status==200){msg.className='ok';msg.textContent=q.responseText+' The clock restarts in a few seconds; this page will reload.';setTimeout(()=>location.href='/',15000)}
   else{msg.className='warn';msg.textContent='Update failed: '+q.responseText+'. The current firmware is still installed.';go.disabled=false;f.disabled=false}};
  q.onerror=()=>{msg.className='warn';msg.textContent='Connection lost. If the clock does not come back within a minute, power-cycle it; the previous firmware stays installed unless the upload completed.'};
  q.send(fd)};
+const R='https://raw.githubusercontent.com/techconcert/GeekMagic/builds/',up=document.getElementById('up'),ck=document.getElementById('ck');
+ck.onclick=async()=>{up.className='';up.textContent='Checking GitHub...';
+ try{const j=await(await fetch(R+'latest.json?'+Date.now(),{cache:'no-store'})).json(),cur=(await(await fetch('/info')).json()).version;
+  if(cur.indexOf(j.commit)>=0){up.className='ok';up.textContent='Up to date ('+cur+').';return}
+  up.textContent='New version '+j.version+' ('+j.commit+', you have '+cur+'). ';
+  const b=document.createElement('button');b.type='button';b.textContent='Download it';up.append(b);
+  b.onclick=async()=>{b.disabled=true;up.textContent='Downloading '+j.bin.split('/').pop()+'...';
+   try{const r=await fetch(R+j.bin);if(!r.ok)throw 0;const a=await r.arrayBuffer();up.textContent='Downloaded '+a.byteLength+' bytes. Check the result above, then press Upload and install.';
+    pick(new File([a],j.bin.split('/').pop()))}catch(e){up.className='warn';up.textContent='Download failed. Try again or choose the file by hand.'}}
+ }catch(e){up.className='warn';up.textContent='Could not reach GitHub from this browser. Choose the file by hand.'}};
 </script>)HTML";
 
 static const char PAGE_WIFI[] PROGMEM = R"HTML(<h2>WiFi setup</h2><div class='box'><form method='post' action='/wifi'>
@@ -660,8 +670,6 @@ static void handleUpdateChunk() {
     MDNS.end();
 #endif
     s_freeAtUpload = ESP.getFreeHeap();
-    Serial.print(F("update: start, free heap "));
-    Serial.println(s_freeAtUpload);
     uint32_t maxSpace = freeOtaBytes();
     Update.clearError();
     if (!Update.begin(maxSpace, U_FLASH))
@@ -684,8 +692,6 @@ static void handleUpdateChunk() {
     // RECOVERY-CHANGE (chunk1): size, CRC and marker rule. Always computed and remembered; enforced only with GQ_STRICT_UPLOAD=1.
     s_upVerdict = upchk_verdict(&s_upc, &s_upRule);
     if (s_upVerdict != UV_OK) {
-      Serial.print(F("update: check says: "));
-      Serial.println(verdictText(s_upVerdict));
 #if GQ_STRICT_UPLOAD
       uploadFail(String(verdictText(s_upVerdict)));
       return;

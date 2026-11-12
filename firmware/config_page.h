@@ -28,7 +28,7 @@ small a{background:none;color:#e89a3c;padding:0}h3{margin:0}[hidden]{display:non
 <div class="box"><h3>Sleep</h3>
 <label><input type="checkbox" name="sl" value="1" id="sl"> Use sleep schedule</label>
 <div><label class="c">Sleep time<input type="time" name="st" id="st" oninput="$('sl').checked=true"></label><label class="c">Wake time<input type="time" name="wt" id="wt" oninput="$('sl').checked=true"></label></div>
-<p><button type="button" data-u="/config/night" data-c="wake">Wake now</button> <button type="button" data-u="/config/night" data-c="sleep">Sleep now</button></p></div>
+<p><button type="button" data-u="/config/night" data-c="wake">Wake now</button> <button type="button" data-u="/config/night" data-c="sleep">Sleep now</button></p><p id="nm"></p></div>
 <div class="box"><h3>Screen</h3>
 <label>Brightness (0-100)<input name="bl" id="bl" maxlength="3" inputmode="numeric"></label>
 <label>Colour depth (0-100, higher = deeper colours, fixes a washed-out look)<input name="depth" id="depth" maxlength="3" inputmode="numeric"></label>
@@ -39,7 +39,7 @@ small a{background:none;color:#e89a3c;padding:0}h3{margin:0}[hidden]{display:non
 <p><button>Save settings</button> <button type="button" id="rs">Reset these settings</button> <a href="/">Back</a></p><div id="msg" role="status"></div></form>
 <script>
 const $=i=>document.getElementById(i),f=$('f'),W=['Clear','Cloudy','Rain','Storm','Fog','Snow','Windy'];
-function say(t,ok){$('msg').textContent=t;$('msg').className=ok?'ok':'warn'}
+function say(t,ok,e){e=$(e||'msg');e.textContent=t;e.className=ok?'ok':'warn'}
 function stat(j){let t='',r=j.reading,c;if(r){c=r.t10/10;if($('uf').checked)c=c*9/5+32;t='Now: '+W[r.wx]+', '+c.toFixed(1)+($('uf').checked?' F':' C')}
  else if(j.weather)t='No weather reading yet.';
  $('now').textContent=t;$('wxs').firstChild.textContent=j.status;$('retry').hidden=!j.retry}
@@ -78,12 +78,12 @@ async function find(){const q=$('q').value.trim(),r=$('res');if(!q)return;r.text
     r.textContent='Chosen: '+n+'. Press Save settings.'};r.appendChild(b)})
  }catch(e){r.textContent='No internet on this device. Type latitude and longitude, or open this page over your home WiFi.'}}
 $('go').onclick=find;$('q').onkeydown=e=>{if(e.key=='Enter'){e.preventDefault();find()}};
-async function post(u,p){p.set('j','1');say('Working...',1);
- try{const x=await fetch(u,{method:'POST',body:p});say(await x.text(),x.ok);if(x.ok)setTimeout(()=>load(u=='/config'||u[8]=='r'),700)}
- catch(e){say('The clock did not answer.',0)}}
+async function post(u,p,e){p.set('j','1');say('Working...',1,e);
+ try{const x=await fetch(u,{method:'POST',body:p});say(await x.text(),x.ok,e);if(x.ok)setTimeout(()=>load(u=='/config'||u[8]=='r'),700)}
+ catch(_){say('The clock did not answer.',0,e)}}
 f.onsubmit=e=>{e.preventDefault();post('/config',new URLSearchParams(new FormData(f)))};
 document.querySelectorAll('[data-g]').forEach(b=>b.onclick=async()=>{try{await fetch(b.dataset.g);say('Display test sent (not saved).',1)}catch(e){say('The clock did not answer.',0)}});
 $('rs').onclick=()=>{if(confirm('Put the weather, location, time zone, sleep and screen settings on this page back to defaults? The game settings on the main page are not touched.'))post('/config/reset',new URLSearchParams())};
-document.querySelectorAll('[data-u]').forEach(b=>b.onclick=()=>post(b.dataset.u,new URLSearchParams(b.dataset.c?{cmd:b.dataset.c}:{})));
+document.querySelectorAll('[data-u]').forEach(b=>b.onclick=()=>post(b.dataset.u,new URLSearchParams(b.dataset.c?{cmd:b.dataset.c}:{}),b.dataset.c?'nm':0));
 load(1);
 </script>)HTML";

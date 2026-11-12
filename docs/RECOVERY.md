@@ -45,6 +45,8 @@ The status page also shows read-only lines about two flash areas: **Stock data s
 - **WiFi modem sleep off** (`GQ_NET_NO_SLEEP`, about 0.25 W more power). Approved 2026-11-11 and ON (the backend page was dropping while the hotspot stayed up).
 - **Flash saving**: does not exist in R2 (it is planned for a later release, after the sector probe above has been seen on the real clock).
 
+R7 adds a browser-side "Check for a new version" button to the update page. It runs only in your browser (GitHub is read from there), the clock sends nothing to GitHub, and the downloaded file goes through exactly the same upload route and checks as a file you pick by hand. R7 also removes the serial debug output (Serial is no longer used anywhere).
+
 ## Before you install a new version (pre-flash checklist)
 
 1. The file comes from the `builds` branch, folder `firmware/` (not `obsolete/`), its name starts with `SDP_GeekQuest_`, and the GitHub check for that version is green.
