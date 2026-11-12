@@ -41,7 +41,7 @@ static bool in_range(int key, int32_t v, int32_t cap) {
     case GQ_Q_FESTIVAL: return v >= -1 && v <= 3;
     case GQ_Q_EVENT: return v >= 0 && v <= 12;
     case GQ_Q_HERO_PRESENCE: return v >= 1 && v <= 4;
-    case GQ_Q_HERO_AREA: return v >= 0 && v < GQ_AREA_COUNT;
+    case GQ_Q_HERO_AREA: return v >= 0 && v <= GQ_AREA_DELVE;   // R8: 8 = a generated deep room
     case GQ_Q_HERO_ACT: return v >= 0 && v < GQ_ACT_COUNT;
     case GQ_Q_HERO_HEARTS: return v >= 1 && v <= 6;
     case GQ_Q_HERO_TILE: return v >= 0 && v < GC_COLS * GC_ROWS;

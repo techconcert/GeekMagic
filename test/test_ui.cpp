@@ -410,6 +410,7 @@ static void test_hud_weather() {
   gc_set_net(GC_NET_ONLINE);
   gc_set_status(0, "IP 192.168.1.50");
   gc_debug(GQ_DBG_SET_DAY, 21);                               // winter: live snow and simulated snow look alike
+  G.s.dv_day = 21;                                            // R8: no deep mission today (it would move the hero into a generated room mid-test)
   // R5: the bar is laid out by real widths, so find where the weather icon starts (the clock is fixed at 184..237)
   const int CLK = 184;
   // nothing left of the weather icon and no clock pixel (x >= 178) changes, for every state, unit and temperature
