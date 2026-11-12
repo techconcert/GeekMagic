@@ -9,10 +9,10 @@ bottom band shows what the hero is doing right now, the clock's IP address and t
 
 **Download:** every build of the `main` branch is published on the
 [Releases page](https://github.com/techconcert/GeekMagic/releases). Releases are named by number
-(GeekQuest r6, **GeekQuest r7**, ...; the number lives in the `VERSION` file) and the newest is marked
+(GeekQuest r7, **GeekQuest r8**, ...; the number lives in the `VERSION` file) and the newest is marked
 "Latest". Each release has the two firmware files, `preview.html` (the game in your browser)
 and `SHA256SUMS.txt`. The file names also carry the short commit, for example
-`SDP_GeekQuest_quest_r7-1a2b3c4.bin`.
+`SDP_GeekQuest_quest_r8-1a2b3c4.bin`.
 
 ## What the game looks like
 
@@ -25,6 +25,17 @@ Screenshots from the preview (the same game core the clock runs), one per place 
 | Ruins | Home | Shop | Tavern |
 |---|---|---|---|
 | ![Ruins](docs/screenshots/ruins.png) | ![Home](docs/screenshots/home.png) | ![Shop](docs/screenshots/shop.png) | ![Tavern](docs/screenshots/tavern.png) |
+
+## Deep missions (R8)
+
+Once a day, between 09:30 and 18:30, the hero may go on a long expedition through a generated forest,
+cave or ruins dungeon of 20 to 30 connected screens with at least three monster types per biome. The
+level is rebuilt from a seed whenever he enters a room, so it costs no flash storage; a mission in
+progress survives a power cut. The cave needs the pick and the ruins the lantern. Design: [docs/DESIGN-R8.md](docs/DESIGN-R8.md).
+
+| Forest | Caves | Ruins |
+|---|---|---|
+| ![Deep forest](docs/screenshots/deep_forest.png) | ![Deep caves](docs/screenshots/deep_caves.png) | ![Deep ruins](docs/screenshots/deep_ruins.png) |
 
 ## Hardware
 
