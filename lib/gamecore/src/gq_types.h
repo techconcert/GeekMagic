@@ -7,6 +7,7 @@
 // ---- ids
 enum { GQ_AREA_VILLAGE, GQ_AREA_FOREST, GQ_AREA_SHORE, GQ_AREA_CAVE, GQ_AREA_RUINS,
        GQ_AREA_HOME, GQ_AREA_SHOP, GQ_AREA_TAVERN, GQ_AREA_COUNT };                    // 8
+#define GQ_AREA_DELVE GQ_AREA_COUNT   // R8: one generated room of a deep mission (not a fixed area; the room is G.s.dv_*)
 enum { GQ_NPC_HERO, GQ_NPC_MIRA, GQ_NPC_BRAM, GQ_NPC_PIP, GQ_NPC_ODDA, GQ_NPC_FINN,
        GQ_NPC_TESS, GQ_NPC_LUMA, GQ_NPC_WREN, GQ_NPC_MISO, GQ_NPC_COUNT };             // 10
 enum { GQ_MON_SLIME, GQ_MON_BAT, GQ_MON_CRAB, GQ_MON_GHOST, GQ_MON_BOSS, GQ_MON_COUNT };
@@ -75,7 +76,8 @@ enum {
 enum { GQ_DBG_ADD_COINS, GQ_DBG_SET_DAY, GQ_DBG_SET_WEATHER, GQ_DBG_ADD_ITEM /*arg=item<<8|n*/,
        GQ_DBG_START_QUEST, GQ_DBG_SHOW_CARD, GQ_DBG_FORCE_ACT, GQ_DBG_BUY_GOAL, GQ_DBG_NEXT_DAY,
        GQ_DBG_FORCE_CHAT,   // arg = villager 1..8: start a chat with him now (0 = anyone)
-       GQ_DBG_TALK_TURNS }; // arg = 2..4: chats play a built-in numbered script of that many turns (0 = off); tests and preview
+       GQ_DBG_TALK_TURNS,   // arg = 2..4: chats play a built-in numbered script of that many turns (0 = off); tests and preview
+       GQ_DBG_DELVE };      // arg = biome 1..3 | seed << 2: start a deep level now and stand in its room 0 (R8; no hero mission yet)
 
 // ---- hero presence (value of GQ_Q_HERO_PRESENCE)
 enum { GQ_PRES_NONE, GQ_PRES_SPRITE, GQ_PRES_DOOR, GQ_PRES_POSTCARD, GQ_PRES_CURTAIN };
@@ -126,7 +128,15 @@ typedef struct {
   uint8_t  seen[8];          // 140
   uint8_t  ach[4];           // 148
   uint16_t chat_today;       // 152
-  uint8_t  reserved[38];     // 154
+  uint8_t  dv_state;         // 154  R8 deep mission: 0 none, 1 forest, 2 cave, 3 dungeon
+  uint8_t  dv_cur;           // 155  current room 0..29
+  uint32_t dv_seed;          // 156  level seed (never 0 while a mission runs)
+  uint32_t dv_seen;          // 160  bit r = room r was left
+  uint8_t  dv_min;           // 164  mission minutes so far 0..60
+  uint8_t  dv_moves;         // 165  room changes so far 0..90
+  uint8_t  dv_day;           // 166  low byte of the day of the last mission start
+  uint8_t  dv_cnt;           // 167  missions started on that day
+  uint8_t  reserved[24];     // 168
 } GqSave;
 
 static_assert(sizeof(GqSave) == GQ_SAVE_SIZE, "GqSave must be 192 bytes");
@@ -170,7 +180,15 @@ static_assert(offsetof(GqSave, friend_) == 128, "friend_");
 static_assert(offsetof(GqSave, seen) == 140, "seen");
 static_assert(offsetof(GqSave, ach) == 148, "ach");
 static_assert(offsetof(GqSave, chat_today) == 152, "chat_today");
-static_assert(offsetof(GqSave, reserved) == 154, "reserved");
+static_assert(offsetof(GqSave, dv_state) == 154, "dv_state");
+static_assert(offsetof(GqSave, dv_cur) == 155, "dv_cur");
+static_assert(offsetof(GqSave, dv_seed) == 156, "dv_seed");
+static_assert(offsetof(GqSave, dv_seen) == 160, "dv_seen");
+static_assert(offsetof(GqSave, dv_min) == 164, "dv_min");
+static_assert(offsetof(GqSave, dv_moves) == 165, "dv_moves");
+static_assert(offsetof(GqSave, dv_day) == 166, "dv_day");
+static_assert(offsetof(GqSave, dv_cnt) == 167, "dv_cnt");
+static_assert(offsetof(GqSave, reserved) == 168, "reserved");
 
 typedef struct {
   GqSave   s;             // the saved part

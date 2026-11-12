@@ -61,5 +61,12 @@ void gq_save_sanitize(GqSave* s) {
   s->hero_area = GQ_AREA_VILLAGE;
   for (int i = 0; i < 12; i++) s->friend_[i] = clamp8(s->friend_[i], 100);
   s->chat_today &= 0x03FF;
-  for (int i = 0; i < 38; i++) s->reserved[i] = 0;
+  // R8 deep mission (docs/DESIGN-R8.md 1.1); dv_cur >= room count is checked when the graph exists
+  if (s->dv_state > 3 || s->dv_seed == 0) s->dv_state = 0;
+  if (s->dv_state == 0) { s->dv_cur = s->dv_min = s->dv_moves = 0; s->dv_seed = s->dv_seen = 0; }
+  if (s->dv_cur > 29) s->dv_cur = 0;
+  s->dv_seen &= 0x3FFFFFFFu;
+  s->dv_min = clamp8(s->dv_min, 60);
+  s->dv_moves = clamp8(s->dv_moves, 90);
+  for (int i = 0; i < 24; i++) s->reserved[i] = 0;
 }
