@@ -15,7 +15,7 @@
 #include "cfgstore.h"
 #include "store.h"
 #include "prefs.h"
-#include "config_page.h"
+#include "config_page_gz.h"
 
 namespace config {
 
@@ -107,10 +107,11 @@ static void redirectConfig() {
 // ---- GET /config: the static page, 400 bytes at a time through the Out buffer
 static void handlePage() {
   if (!admit()) return;
-  safety::beginPage();
+  srv().sendHeader(F("Content-Encoding"), F("gzip"));   // the page is stored gzipped (tools/gen_config_gz.py), every browser inflates it
+  safety::beginChunked(200, F("text/html; charset=utf-8"));
   webout::Out o(srv());
-  size_t left = strlen_P(CONFIG_PAGE);
-  PGM_P p = CONFIG_PAGE;
+  size_t left = CONFIG_PAGE_GZ_LEN;
+  const unsigned char* p = CONFIG_PAGE_GZ;
   while (left) {                                 // bounded: at most left/400 + 1 passes
     size_t n = left > 400 ? 400 : left;
     o.flush();
@@ -120,7 +121,7 @@ static void handlePage() {
     left -= n;
   }
   o.flush();
-  safety::endPage();
+  safety::endChunked();
 }
 
 // ---- GET /config.json

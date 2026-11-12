@@ -38,6 +38,8 @@ jobs:
           for t in test/*.py; do echo "=== $t"; python3 "$t"; done
       - name: Dialogue data is up to date
         run: python3 tools/gen_talk.py --verify
+      - name: Config page gzip matches its source
+        run: python3 tools/gen_config_gz.py --verify
       - name: Host tests (ASan/UBSan, one executable per test/test_*.cpp and core_smoke.cpp)
         run: |
           set -e

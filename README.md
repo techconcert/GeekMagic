@@ -164,6 +164,7 @@ lib/gqsafe/      pure decision code of the recovery layer (boot counters, WiFi l
 assets/src/      editable PNG sheets
 tools/           asset converter, version stamp, .bin safety checks, source lint, CI guards
 content/talk/    villager dialogue scripts (compiled into the firmware by tools/gen_talk.py)
+firmware/config_page.h  source of the /config page; the firmware serves the gzip copy in config_page_gz.h (run tools/gen_config_gz.py after editing it, CI verifies)
 docs/            design notes (DESIGN.md, DESIGN-R3.md), the owner's recovery guide
 preview/         browser preview (WebAssembly)
 test/            host tests
