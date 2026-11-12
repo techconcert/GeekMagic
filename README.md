@@ -14,6 +14,18 @@ bottom band shows what the hero is doing right now, the clock's IP address and t
 and `SHA256SUMS.txt`. The file names also carry the short commit, for example
 `SDP_GeekQuest_quest_r5-1a2b3c4.bin`.
 
+## What the game looks like
+
+Screenshots from the preview (the same game core the clock runs), one per place the hero visits.
+
+| Village | Forest | Shore | Cave |
+|---|---|---|---|
+| ![Village](docs/screenshots/village.png) | ![Forest](docs/screenshots/forest.png) | ![Shore](docs/screenshots/shore.png) | ![Cave](docs/screenshots/cave.png) |
+
+| Ruins | Home | Shop | Tavern |
+|---|---|---|---|
+| ![Ruins](docs/screenshots/ruins.png) | ![Home](docs/screenshots/home.png) | ![Shop](docs/screenshots/shop.png) | ![Tavern](docs/screenshots/tavern.png) |
+
 ## Hardware
 
 - GeekMagic SD Pro / SmallTV-style clock: ESP8266 (ESP-12, 4 MB flash) with a 240x240 ST7789
